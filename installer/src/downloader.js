@@ -185,8 +185,29 @@ function extractZip(zipPath, targetDir, onStatus) {
 }
 
 async function fetchLatestReleaseAsset(repo = DEFAULT_REPO) {
-  const url = `https://api.github.com/repos/${repo}/releases/latest`;
-  const release = await fetchJson(url);
+  let release = null;
+
+  // 1. First fetch all releases (captures both latest and prereleases like v0.1Beta)
+  try {
+    const listUrl = `https://api.github.com/repos/${repo}/releases`;
+    const releases = await fetchJson(listUrl);
+    if (Array.isArray(releases) && releases.length > 0) {
+      release = releases.find(r => !r.draft) || releases[0];
+    }
+  } catch (err) {
+    console.warn('Could not query releases list, trying /releases/latest:', err.message);
+  }
+
+  // 2. Fallback to /releases/latest if release list failed
+  if (!release) {
+    const latestUrl = `https://api.github.com/repos/${repo}/releases/latest`;
+    release = await fetchJson(latestUrl);
+  }
+
+  if (!release) {
+    throw new Error(`No available releases found on GitHub repository ${repo}`);
+  }
+
   const version = release.tag_name || release.name || 'latest';
   const assets = release.assets || [];
 

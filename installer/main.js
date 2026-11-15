@@ -126,37 +126,29 @@ ipcMain.handle('start-install', async (event, config) => {
       }
     }
 
-    // Check if a local workspace payload exists for offline/dev test
-    const localZipCandidate = path.join(__dirname, '..', 'dist', 'jbeam-studio-win-x64.zip');
-    const localUnpackedCandidate = path.join(__dirname, '..', 'jbeam-studio');
-
-    let downloadSuccessful = false;
-
     if (!simulatedMode) {
-      try {
-        sendStatus(`Connecting to GitHub (${repo})...`);
-        const releaseAsset = await fetchLatestReleaseAsset(repo);
-        
-        sendStatus(`Downloading JBeam.editor ${releaseAsset.version}...`);
-        const tempZip = path.join(os.tmpdir(), `jbeam-editor-setup-${Date.now()}.zip`);
+      sendStatus(`Connecting to GitHub (${repo})...`);
+      const releaseAsset = await fetchLatestReleaseAsset(repo);
+      
+      sendStatus(`Downloading JBeam.editor ${releaseAsset.version}...`);
+      const tempZip = path.join(os.tmpdir(), `jbeam-editor-setup-${Date.now()}.zip`);
 
-        await downloadFile(releaseAsset.downloadUrl, tempZip, sendProgress);
+      await downloadFile(releaseAsset.downloadUrl, tempZip, sendProgress);
 
-        sendStatus('Extracting application files...');
-        extractZip(tempZip, installDir, sendStatus);
+      sendStatus('Extracting application files...');
+      extractZip(tempZip, installDir, sendStatus);
 
-        // Clean up temp zip
-        try { fs.unlinkSync(tempZip); } catch (e) {}
-        downloadSuccessful = true;
-      } catch (ghErr) {
-        console.warn('GitHub download not available or failed:', ghErr.message);
-        sendStatus('Note: Live GitHub release not found yet. Running local setup mode...');
+      // Clean up temp zip
+      try { fs.unlinkSync(tempZip); } catch (e) {}
+
+      // Verify executable was properly installed
+      const targetExe = path.join(installDir, 'JBeam.editor.exe');
+      if (!fs.existsSync(targetExe)) {
+        throw new Error(`Installation verification failed: JBeam.editor.exe was not found in ${installDir}`);
       }
-    }
-
-    if (!downloadSuccessful) {
-      // Offline/Dev fallback: simulate progress or copy from local project if testing locally
-      sendStatus('Preparing JBeam.editor application package...');
+    } else {
+      // Simulated dev mode
+      sendStatus('Preparing JBeam.editor application package (simulated)...');
       for (let p = 10; p <= 100; p += 15) {
         await new Promise(r => setTimeout(r, 120));
         sendProgress({
@@ -166,14 +158,6 @@ ipcMain.handle('start-install', async (event, config) => {
           total: '95.0 MB',
           eta: `${Math.max(0, Math.ceil((100 - p) / 25))}s`
         });
-      }
-
-      // Create a launcher placeholder if testing before build
-      const targetExe = path.join(installDir, 'JBeam.editor.exe');
-      if (!fs.existsSync(targetExe)) {
-        // If local jbeam-studio exists, create a runner script / batch launcher
-        const batchLauncher = `@echo off\nstart "" npm --prefix "${localUnpackedCandidate}" start\n`;
-        fs.writeFileSync(path.join(installDir, 'JBeam.editor.cmd'), batchLauncher, 'utf-8');
       }
     }
 
@@ -203,9 +187,7 @@ ipcMain.handle('start-install', async (event, config) => {
 ipcMain.handle('launch-app', (event, installDir) => {
   const candidates = [
     path.join(installDir, 'JBeam.editor.exe'),
-    path.join(installDir, 'JBeam Studio.exe'),
-    path.join(installDir, 'JBeam.editor.cmd'),
-    path.join(installDir, 'JBeam Studio.cmd')
+    path.join(installDir, 'JBeam Studio.exe')
   ];
 
   const target = candidates.find(c => fs.existsSync(c));

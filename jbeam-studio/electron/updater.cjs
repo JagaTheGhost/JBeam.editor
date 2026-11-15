@@ -25,9 +25,8 @@ function isNewer(remoteStr, localStr) {
   return false;
 }
 
-function fetchLatestRelease(repo = DEFAULT_REPO) {
+function fetchJsonUrl(url) {
   return new Promise((resolve, reject) => {
-    const url = `https://api.github.com/repos/${repo}/releases/latest`;
     const req = https.get(url, {
       headers: {
         'User-Agent': 'JBeam.editor-App',
@@ -35,15 +34,7 @@ function fetchLatestRelease(repo = DEFAULT_REPO) {
       }
     }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return https.get(res.headers.location, {
-          headers: { 'User-Agent': 'JBeam.editor-App' }
-        }, (redirectRes) => {
-          let data = '';
-          redirectRes.on('data', chunk => { data += chunk; });
-          redirectRes.on('end', () => {
-            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-          });
-        }).on('error', reject);
+        return fetchJsonUrl(res.headers.location).then(resolve).catch(reject);
       }
 
       if (res.statusCode !== 200) {
@@ -67,6 +58,22 @@ function fetchLatestRelease(repo = DEFAULT_REPO) {
       reject(new Error('Update check timeout'));
     });
   });
+}
+
+async function fetchLatestRelease(repo = DEFAULT_REPO) {
+  // 1. Try releases list (handles both standard releases and prereleases)
+  try {
+    const releases = await fetchJsonUrl(`https://api.github.com/repos/${repo}/releases`);
+    if (Array.isArray(releases) && releases.length > 0) {
+      const release = releases.find(r => !r.draft) || releases[0];
+      if (release) return release;
+    }
+  } catch (err) {
+    console.warn('Could not query releases list for update check, trying latest endpoint:', err.message);
+  }
+
+  // 2. Fallback to /releases/latest
+  return await fetchJsonUrl(`https://api.github.com/repos/${repo}/releases/latest`);
 }
 
 function registerUpdaterIpc(ipcMain, getMainWindow) {
