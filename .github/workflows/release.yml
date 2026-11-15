@@ -1,4 +1,4 @@
-name: Build and Release JBeam Studio & Installer
+name: Build and Release JBeam.editor & Installer
 
 on:
   push:
@@ -22,15 +22,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
-          cache-dependency-path: 'jbeam-studio/package-lock.json'
 
       # ----------------------------------------------------
-      # 1. Build JBeam Studio Main Application
+      # 1. Build JBeam.editor Main Application
       # ----------------------------------------------------
       - name: Install Application Dependencies
         working-directory: jbeam-studio
-        run: npm ci
+        run: npm install
 
       - name: Build Web Production Assets (Vite)
         working-directory: jbeam-studio
@@ -49,10 +47,10 @@ jobs:
       - name: Build Standalone Installer Executable
         working-directory: installer
         run: |
-          npm install electron-builder --save-dev
+          npm install
           npx electron-builder --win portable --publish never
           # Standardize installer asset name
-          Move-Item -Path "dist/*-Setup*.exe" -Destination "dist/JBeamStudio-Setup.exe" -Force
+          Move-Item -Path "dist/*-Setup*.exe" -Destination "dist/JBeam.editor-Setup-v0.1Beta.exe" -Force
 
       # ----------------------------------------------------
       # 3. Publish Both to GitHub Releases
@@ -61,13 +59,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: JBeam Studio ${{ github.ref_name }}
+          name: JBeam.editor ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: true
           generate_release_notes: true
           files: |
-            installer/dist/JBeamStudio-Setup-*.exe
+            installer/dist/JBeam.editor-Setup-v0.1Beta.exe
             jbeam-studio/release/jbeam-studio-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

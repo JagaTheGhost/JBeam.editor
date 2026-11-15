@@ -33,6 +33,10 @@
     "installer",
     "bootstrapper"
   ],
+  "devDependencies": {
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8"
+  },
   "author": "JBeam Studio Team",
   "license": "MIT"
 }

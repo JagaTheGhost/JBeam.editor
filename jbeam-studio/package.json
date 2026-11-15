@@ -18,8 +18,8 @@
     "test": "node test/runner.js"
   },
   "build": {
-    "appId": "com.beamng.jbeamstudio",
-    "productName": "JBeam Studio",
+    "appId": "com.beamng.jbeameditor",
+    "productName": "JBeam.editor",
     "directories": {
       "output": "release"
     },
@@ -37,7 +37,7 @@
           ]
         }
       ],
-      "icon": "public/icons/jbeam.png"
+      "icon": "public/icons/bng-logo.png"
     }
   },
   "dependencies": {
@@ -51,6 +51,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
     "vite": "^6.1.1",
     "wait-on": "^8.0.2"
   }
