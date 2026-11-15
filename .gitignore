@@ -1,0 +1,26 @@
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Build artifacts & distribution packages
+dist/
+**/dist/
+release/
+**/release/
+*.zip
+*.blockmap
+
+# Unrelated / Reference / Temporary folders (Excluded)
+.references/
+sample-project/
+scratch/
+scratch*
+percheron/
+
+# Logs & system files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

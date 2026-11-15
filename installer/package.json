@@ -1,0 +1,38 @@
+{
+  "name": "jbeam-editor-installer",
+  "version": "0.1.0-beta",
+  "productName": "JBeam.editor-Setup",
+  "description": "Custom Frameless Web Bootstrapper for JBeam.editor v0.1Beta",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.beamng.jbeameditor.setup",
+    "productName": "JBeam.editor-Setup",
+    "artifactName": "JBeam.editor-Setup-v0.1Beta.${ext}",
+    "win": {
+      "target": "portable",
+      "icon": "assets/bng-logo.png"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "assets/**/*"
+    ]
+  },
+  "keywords": [
+    "jbeam",
+    "beamng",
+    "installer",
+    "bootstrapper"
+  ],
+  "author": "JBeam Studio Team",
+  "license": "MIT"
+}

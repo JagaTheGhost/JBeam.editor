@@ -1,0 +1,560 @@
+/* ==========================================================================
+   JBeam Studio Installer - BeamNG.drive Native UI Theme
+   Follows main app stylesheet color tokens and UI styling
+   ========================================================================== */
+
+:root {
+  /* BeamNG Core Color Tokens */
+  --bng-orange: #FF6600;
+  --bng-orange-hover: #FF8533;
+  --bng-deep-charcoal: #1A1A1A;
+  --bng-surface-gray: #262626;
+  --bng-gunmetal: #3D3D3D;
+  --bng-white: #FFFFFF;
+  --bng-silver: #B3B3B3;
+  --bng-dim: #737373;
+  --bng-green: #4CAF50;
+  --bng-yellow: #FFC107;
+  --bng-red: #F44336;
+
+  /* App Theme Variables */
+  --bg-main: #1A1A1A;
+  --bg-panel: #202020;
+  --bg-panel-alt: #262626;
+  --bg-toolbar: #181818;
+  --border-color: #3D3D3D;
+  --border-active: #FF6600;
+
+  --text-main: #FFFFFF;
+  --text-muted: #B3B3B3;
+  --text-dim: #737373;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  border: 1px solid var(--border-color);
+}
+
+.window-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--bg-main);
+}
+
+/* Iconic JBeam.editor Brand Styling */
+.brand-title {
+  display: inline-flex;
+  align-items: baseline;
+  user-select: none;
+}
+
+.brand-base {
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.brand-ext {
+  color: var(--bng-orange, #FF6600) !important;
+  font-weight: 700;
+  margin-left: 0.5px;
+}
+
+/* --------------------------------------------------------------------------
+   Titlebar
+   -------------------------------------------------------------------------- */
+.titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 34px;
+  background-color: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border-color);
+  -webkit-app-region: drag;
+  padding-left: 10px;
+}
+
+.titlebar-drag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titlebar-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.version-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bng-orange);
+  background: rgba(255, 102, 0, 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 102, 0, 0.25);
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 44px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.window-control-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+.window-control-btn.btn-close:hover {
+  background: #E81123;
+  color: #FFFFFF;
+}
+
+/* --------------------------------------------------------------------------
+   Main Content Layout
+   -------------------------------------------------------------------------- */
+.content-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  padding: 20px 28px;
+}
+
+.step-panel {
+  position: absolute;
+  top: 20px;
+  left: 28px;
+  right: 28px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.step-panel.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* --------------------------------------------------------------------------
+   App Header
+   -------------------------------------------------------------------------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.app-logo {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.app-titles h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.app-titles p {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Panel Boxes & Fields
+   -------------------------------------------------------------------------- */
+.panel-box {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.detection-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detection-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-indicator.green {
+  background-color: var(--bng-green);
+}
+
+.status-indicator.amber {
+  background-color: var(--bng-yellow);
+}
+
+.field-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.field-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+.bng-input {
+  flex: 1;
+  background-color: var(--bng-surface-gray);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #FFFFFF;
+  font-family: inherit;
+  outline: none;
+}
+
+.bng-input:focus {
+  border-color: var(--bng-orange);
+}
+
+/* --------------------------------------------------------------------------
+   Options List & Checkbox
+   -------------------------------------------------------------------------- */
+.options-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  margin: 10px 0 16px 0;
+}
+
+.bng-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.bng-checkbox input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.checkbox-custom {
+  width: 16px;
+  height: 16px;
+  background-color: var(--bng-surface-gray);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.bng-checkbox input:checked ~ .checkbox-custom {
+  background-color: var(--bng-orange);
+  border-color: var(--bng-orange);
+}
+
+.checkbox-custom:after {
+  content: "";
+  position: absolute;
+  display: none;
+  left: 5px;
+  top: 2px;
+  width: 3px;
+  height: 7px;
+  border: solid #FFFFFF;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.bng-checkbox input:checked ~ .checkbox-custom:after {
+  display: block;
+}
+
+.bng-checkbox:hover {
+  color: #FFFFFF;
+}
+
+/* --------------------------------------------------------------------------
+   Buttons (Matching main app's .bng-btn)
+   -------------------------------------------------------------------------- */
+.bng-btn {
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  outline: none;
+}
+
+.bng-btn.primary {
+  background-color: var(--bng-orange);
+  border: 1px solid var(--bng-orange);
+  color: #FFFFFF !important;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.bng-btn.primary:hover {
+  background-color: var(--bng-orange-hover);
+  border-color: var(--bng-orange-hover);
+}
+
+.bng-btn.secondary {
+  background-color: var(--bng-surface-gray);
+  border: 1px solid var(--border-color);
+  color: #FFFFFF;
+}
+
+.bng-btn.secondary:hover {
+  border-color: var(--bng-orange);
+  color: var(--bng-orange);
+}
+
+.bng-btn.full-width {
+  width: 100%;
+  padding: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   Footer Bar
+   -------------------------------------------------------------------------- */
+.footer-bar {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.footer-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------------------
+   Step 2: Installing Screen
+   -------------------------------------------------------------------------- */
+.installing-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  margin-bottom: 24px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--bng-orange);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.installing-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.progress-container {
+  margin-bottom: 24px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: var(--bg-panel-alt);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background-color: var(--bng-orange);
+  border-radius: 4px;
+  transition: width 0.15s ease;
+}
+
+.progress-details {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.tip-banner {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--bng-orange);
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-top: auto;
+  font-size: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.tip-label {
+  font-weight: 700;
+  color: var(--bng-orange);
+}
+
+.tip-text {
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Step 3: Finish Screen
+   -------------------------------------------------------------------------- */
+.finish-header {
+  text-align: center;
+  margin-top: 10px;
+  margin-bottom: 20px;
+}
+
+.success-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: rgba(76, 175, 80, 0.15);
+  border: 2px solid var(--bng-green);
+  color: var(--bng-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 auto 12px auto;
+}
+
+.finish-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.summary-box {
+  margin-bottom: 14px;
+}
+
+.summary-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.summary-line:last-child {
+  border-bottom: none;
+}
+
+.summary-label {
+  color: var(--text-dim);
+}
+
+.summary-value {
+  color: #FFFFFF;
+  font-weight: 500;
+  max-width: 65%;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finish-checkbox-row {
+  margin-bottom: 14px;
+}
+
+.finish-footer {
+  border-top: none;
+  padding-top: 0;
+}

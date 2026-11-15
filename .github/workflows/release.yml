@@ -1,0 +1,73 @@
+name: Build and Release JBeam Studio & Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Application & Bootstrapper
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'jbeam-studio/package-lock.json'
+
+      # ----------------------------------------------------
+      # 1. Build JBeam Studio Main Application
+      # ----------------------------------------------------
+      - name: Install Application Dependencies
+        working-directory: jbeam-studio
+        run: npm ci
+
+      - name: Build Web Production Assets (Vite)
+        working-directory: jbeam-studio
+        run: npm run build
+
+      - name: Package Windows Application Payload (.zip)
+        working-directory: jbeam-studio
+        run: |
+          npx electron-builder --win zip --publish never
+          # Standardize release asset name
+          Move-Item -Path "release/*.zip" -Destination "release/jbeam-studio-win-x64.zip" -Force
+
+      # ----------------------------------------------------
+      # 2. Build Custom Web Bootstrapper Installer
+      # ----------------------------------------------------
+      - name: Build Standalone Installer Executable
+        working-directory: installer
+        run: |
+          npm install electron-builder --save-dev
+          npx electron-builder --win portable --publish never
+          # Standardize installer asset name
+          Move-Item -Path "dist/*-Setup*.exe" -Destination "dist/JBeamStudio-Setup.exe" -Force
+
+      # ----------------------------------------------------
+      # 3. Publish Both to GitHub Releases
+      # ----------------------------------------------------
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: JBeam Studio ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            installer/dist/JBeamStudio-Setup-*.exe
+            jbeam-studio/release/jbeam-studio-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

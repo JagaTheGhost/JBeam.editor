@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JBeam.editor Setup - v0.1Beta</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="window-shell">
+    <!-- Clean Title Bar -->
+    <header class="titlebar">
+      <div class="titlebar-drag">
+        <img src="../assets/bng-logo.png" alt="logo" class="titlebar-icon">
+        <span class="titlebar-title">
+          <span class="brand-base">JBeam</span><span class="brand-ext">.editor</span> Setup
+        </span>
+        <span class="version-tag">v0.1Beta</span>
+      </div>
+      <div class="titlebar-controls">
+        <button id="btn-minimize" class="window-control-btn" title="Minimize">─</button>
+        <button id="btn-close" class="window-control-btn btn-close" title="Close">✕</button>
+      </div>
+    </header>
+
+    <!-- Content Body -->
+    <main class="content-body">
+
+      <!-- STEP 1: SETUP -->
+      <section id="step-config" class="step-panel active">
+        <div class="app-header">
+          <img src="../assets/bng-logo.png" alt="JBeam.editor" class="app-logo">
+          <div class="app-titles">
+            <h1 class="brand-title">
+              <span class="brand-base">JBeam</span><span class="brand-ext">.editor</span>
+            </h1>
+            <p>BeamNG.drive Vehicle & JBeam Development Environment</p>
+          </div>
+        </div>
+
+        <!-- BeamNG Detection Box -->
+        <div class="panel-box detection-box">
+          <div class="detection-left">
+            <span class="status-indicator green" id="beamng-status-dot"></span>
+            <div>
+              <div class="field-title" id="beamng-status-label">Detecting BeamNG.drive...</div>
+              <div class="field-desc" id="beamng-path-text">Scanning Steam library and Windows Registry...</div>
+            </div>
+          </div>
+          <button class="bng-btn secondary" id="btn-browse-beamng">Browse</button>
+        </div>
+
+        <!-- Install Destination -->
+        <div class="panel-box">
+          <label class="field-label" for="input-install-dir">Install Directory</label>
+          <div class="input-with-button">
+            <input type="text" id="input-install-dir" spellcheck="false" class="bng-input">
+            <button class="bng-btn secondary" id="btn-browse-dir">Browse</button>
+          </div>
+        </div>
+
+        <!-- Options Checklist -->
+        <div class="options-list">
+          <label class="bng-checkbox">
+            <input type="checkbox" id="opt-jbeam" checked>
+            <span class="checkbox-custom"></span>
+            <span>Associate <strong>.jbeam</strong> vehicle structure files</span>
+          </label>
+          <label class="bng-checkbox">
+            <input type="checkbox" id="opt-pc" checked>
+            <span class="checkbox-custom"></span>
+            <span>Associate <strong>.pc</strong> vehicle part configuration files</span>
+          </label>
+          <label class="bng-checkbox">
+            <input type="checkbox" id="opt-context" checked>
+            <span class="checkbox-custom"></span>
+            <span>Add "Open in JBeam.editor" to Explorer context menu</span>
+          </label>
+          <label class="bng-checkbox">
+            <input type="checkbox" id="opt-shortcuts" checked>
+            <span class="checkbox-custom"></span>
+            <span>Create Desktop and Start Menu shortcuts</span>
+          </label>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer-bar">
+          <span class="footer-note">Ready to install</span>
+          <button id="btn-start-install" class="bng-btn primary">INSTALL</button>
+        </div>
+      </section>
+
+      <!-- STEP 2: INSTALLING -->
+      <section id="step-installing" class="step-panel">
+        <div class="installing-header">
+          <div class="spinner"></div>
+          <div>
+            <h2 id="install-headline">
+              Installing <span class="brand-base">JBeam</span><span class="brand-ext">.editor</span>
+            </h2>
+            <p id="install-substatus" class="field-desc">Connecting to GitHub...</p>
+          </div>
+        </div>
+
+        <!-- Progress Track -->
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-details">
+            <span id="stat-downloaded">0.0 MB / -- MB (0%)</span>
+            <span id="stat-speed">0.0 MB/s</span>
+            <span id="stat-eta">ETA: --</span>
+          </div>
+        </div>
+
+        <!-- Simple Tip Banner -->
+        <div class="tip-banner">
+          <span class="tip-label">TIP:</span>
+          <span id="tip-text" class="tip-text">Press Alt+G in the 3D viewport to reset node gizmo offsets.</span>
+        </div>
+      </section>
+
+      <!-- STEP 3: FINISHED -->
+      <section id="step-finish" class="step-panel">
+        <div class="finish-header">
+          <div class="success-icon">✓</div>
+          <h2>Installation Complete</h2>
+          <p class="field-desc">
+            <span class="brand-base">JBeam</span><span class="brand-ext">.editor</span> v0.1Beta is installed and ready
+            to use.
+          </p>
+        </div>
+
+        <div class="panel-box summary-box">
+          <div class="summary-line">
+            <span class="summary-label">Installed to:</span>
+            <span class="summary-value" id="summary-install-dir">--</span>
+          </div>
+          <div class="summary-line">
+            <span class="summary-label">BeamNG Path:</span>
+            <span class="summary-value" id="summary-beamng-dir">--</span>
+          </div>
+          <div class="summary-line">
+            <span class="summary-label">Version:</span>
+            <span class="summary-value">v0.1Beta</span>
+          </div>
+        </div>
+
+        <div class="finish-checkbox-row">
+          <label class="bng-checkbox">
+            <input type="checkbox" id="opt-launch-now" checked>
+            <span class="checkbox-custom"></span>
+            <span>Launch JBeam.editor now</span>
+          </label>
+        </div>
+
+        <div class="footer-bar finish-footer">
+          <button id="btn-finish" class="bng-btn primary full-width">LAUNCH</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="ui.js"></script>
+</body>
+
+</html>

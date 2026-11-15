@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JBeam.editor Documentation & Reference Manual</title>
+  <link rel="icon" type="image/png" href="assets/bng-logo.png">
+  <style>
+    /* BeamNG Theme Color Tokens */
+    :root {
+      --bng-orange: #FF6600;
+      --bng-orange-hover: #FF8533;
+      --bng-deep-charcoal: #1A1A1A;
+      --bng-surface-gray: #202020;
+      --bng-surface-alt: #262626;
+      --bng-gunmetal: #3D3D3D;
+      --bng-white: #FFFFFF;
+      --bng-silver: #B3B3B3;
+      --bng-dim: #737373;
+      --bng-green: #4CAF50;
+      --bng-blue: #00D2FF;
+      --bng-purple: #9C27B0;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bng-deep-charcoal);
+      color: var(--bng-white);
+      line-height: 1.6;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 102, 0, 0.5);
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: 320px;
+      background-color: var(--bng-surface-gray);
+      border-right: 1px solid var(--bng-gunmetal);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--bng-gunmetal);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background-color: #181818;
+    }
+
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #FFFFFF;
+      letter-spacing: -0.2px;
+    }
+
+    .brand-ext {
+      color: var(--bng-orange);
+    }
+
+    .version-badge {
+      font-size: 10px;
+      background: rgba(255, 102, 0, 0.15);
+      color: var(--bng-orange);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 102, 0, 0.3);
+      font-weight: 700;
+      margin-left: auto;
+    }
+
+    .search-box {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--bng-gunmetal);
+      background: var(--bng-surface-gray);
+    }
+
+    .search-input {
+      width: 100%;
+      background-color: var(--bng-surface-alt);
+      border: 1px solid var(--bng-gunmetal);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #FFFFFF;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .search-input:focus {
+      border-color: var(--bng-orange);
+    }
+
+    .nav-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 0;
+      list-style: none;
+    }
+
+    .nav-category {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      color: var(--bng-dim);
+      padding: 10px 20px 4px 20px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 20px;
+      font-size: 13px;
+      color: var(--bng-silver);
+      text-decoration: none;
+      border-left: 3px solid transparent;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+
+    .nav-item:hover {
+      background-color: rgba(255, 255, 255, 0.04);
+      color: #FFFFFF;
+      border-left-color: rgba(255, 102, 0, 0.4);
+    }
+
+    .nav-item.active {
+      background-color: rgba(255, 102, 0, 0.12);
+      color: #FFFFFF;
+      border-left-color: var(--bng-orange);
+      font-weight: 600;
+    }
+
+    /* Main Content Area */
+    .content-viewport {
+      flex: 1;
+      overflow-y: auto;
+      padding: 40px 60px;
+      background: radial-gradient(circle at 90% 10%, rgba(255, 102, 0, 0.04) 0%, transparent 50%),
+                  var(--bng-deep-charcoal);
+    }
+
+    .doc-container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    /* Typography */
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #FFFFFF;
+      letter-spacing: -0.5px;
+    }
+
+    .doc-lead {
+      font-size: 16px;
+      color: var(--bng-silver);
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #FFFFFF;
+      margin: 48px 0 16px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--bng-gunmetal);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h2:first-of-type {
+      margin-top: 24px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--bng-orange);
+      margin: 24px 0 10px 0;
+    }
+
+    p {
+      font-size: 14px;
+      color: var(--bng-silver);
+      margin-bottom: 14px;
+      line-height: 1.65;
+    }
+
+    ul, ol {
+      margin: 0 0 18px 22px;
+      color: var(--bng-silver);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    strong {
+      color: #FFFFFF;
+    }
+
+    /* Cards & Callouts */
+    .feature-card {
+      background-color: var(--bng-surface-gray);
+      border: 1px solid var(--bng-gunmetal);
+      border-radius: 6px;
+      padding: 20px 24px;
+      margin: 18px 0 28px 0;
+    }
+
+    .feature-card.highlight {
+      border-left: 4px solid var(--bng-orange);
+    }
+
+    .feature-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 3px;
+      margin-bottom: 10px;
+      background: rgba(255, 102, 0, 0.15);
+      color: var(--bng-orange);
+      border: 1px solid rgba(255, 102, 0, 0.3);
+    }
+
+    .key-badge {
+      display: inline-block;
+      background: #2b2b2b;
+      border: 1px solid #4a4a4a;
+      color: #FFFFFF;
+      font-family: monospace;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+
+    /* Code Blocks */
+    pre {
+      background-color: #141414;
+      border: 1px solid var(--bng-gunmetal);
+      border-radius: 4px;
+      padding: 14px 18px;
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 13px;
+      color: #e6edf3;
+      overflow-x: auto;
+      margin: 12px 0 18px 0;
+      line-height: 1.5;
+    }
+
+    code {
+      font-family: "Consolas", "Courier New", monospace;
+      background: rgba(255, 255, 255, 0.08);
+      color: #FF9944;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px 0;
+      font-size: 13px;
+    }
+
+    th {
+      background-color: var(--bng-surface-alt);
+      color: #FFFFFF;
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 14px;
+      border: 1px solid var(--bng-gunmetal);
+    }
+
+    td {
+      padding: 9px 14px;
+      border: 1px solid var(--bng-gunmetal);
+      color: var(--bng-silver);
+      background-color: var(--bng-surface-gray);
+    }
+
+    tr:nth-child(even) td {
+      background-color: rgba(38, 38, 38, 0.6);
+    }
+
+    /* Beam Types Legend Grid */
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bng-surface-alt);
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--bng-gunmetal);
+      font-size: 12px;
+    }
+
+    .color-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="assets/bng-logo.png" alt="JBeam.editor" class="brand-logo">
+      <span class="brand-title">JBeam<span class="brand-ext">.editor</span></span>
+      <span class="version-badge">v0.1Beta</span>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="doc-search" placeholder="Filter features (e.g. gizmo, symmetry)..." class="search-input">
+    </div>
+
+    <ul class="nav-list" id="nav-list">
+      <li class="nav-category">Getting Started</li>
+      <li><a class="nav-item active" href="#overview">1. Overview & Architecture</a></li>
+      <li><a class="nav-item" href="#workspace-modes">2. Workspace Layouts & Popouts</a></li>
+
+      <li class="nav-category">Core Editing</li>
+      <li><a class="nav-item" href="#monaco-editor">3. Monaco JBeam Editor</a></li>
+      <li><a class="nav-item" href="#ast-sync">4. Bidirectional AST Sync</a></li>
+
+      <li class="nav-category">3D Physics Viewport</li>
+      <li><a class="nav-item" href="#viewport-3d">5. 3D Structure Viewport</a></li>
+      <li><a class="nav-item" href="#gizmos-manipulation">6. Gizmos & Multi-Move</a></li>
+      <li><a class="nav-item" href="#orientation-gizmo">7. Blender Orientation Gizmo</a></li>
+      <li><a class="nav-item" href="#symmetry-engine">8. Bilateral Symmetry Engine</a></li>
+
+      <li class="nav-category">Modding Tools</li>
+      <li><a class="nav-item" href="#geometry-tools">9. Geometry & Modeling Tools</a></li>
+      <li><a class="nav-item" href="#assembly-slots">10. Multi-Part Assembly & Slots</a></li>
+      <li><a class="nav-item" href="#reference-dae">11. Reference DAE & Blueprints</a></li>
+      <li><a class="nav-item" href="#powertrain">12. Powertrain Visualizer</a></li>
+      <li><a class="nav-item" href="#sim-connection">13. Live Simulation Connection</a></li>
+      <li><a class="nav-item" href="#diagnostics">14. Diagnostics & Validation</a></li>
+
+      <li class="nav-category">System & Setup</li>
+      <li><a class="nav-item" href="#installer-updates">15. Installer & Auto-Updates</a></li>
+      <li><a class="nav-item" href="#shortcuts-cheatsheet">16. Shortcuts & Cheat Sheet</a></li>
+    </ul>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="content-viewport">
+    <div class="doc-container">
+
+      <!-- 1. OVERVIEW -->
+      <section id="overview">
+        <h1>JBeam<span class="brand-ext">.editor</span> Reference Manual</h1>
+        <p class="doc-lead">
+          <strong>JBeam.editor</strong> is a specialized development environment built for <strong>BeamNG.drive</strong> vehicle designers, modders, and physics engineers. It bridges the gap between raw SJSON source code and real-time 3D WebGL physics skeleton visualization.
+        </p>
+
+        <div class="feature-card highlight">
+          <span class="feature-badge">Key Architecture</span>
+          <p>Unlike traditional 3D DCC tools (Blender) or basic text editors (VS Code/Notepad++), JBeam.editor runs both environments side-by-side with <strong>lossless bidirectional synchronization</strong>:</p>
+          <ul>
+            <li><strong>Source to Viewport</strong>: Edits in code immediately parse and animate the 3D physics structure.</li>
+            <li><strong>Viewport to Source</strong>: Dragging nodes in 3D updates the exact coordinates in the document AST without altering indentation, whitespace, or comments.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 2. WORKSPACE LAYOUTS -->
+      <section id="workspace-modes">
+        <h2>2. Workspace Layouts & Popout Windows</h2>
+        <p>JBeam.editor supports flexible layout presets to adapt to laptops, single ultrawide displays, and multi-monitor workstations.</p>
+
+        <div class="feature-card">
+          <h3>Layout Modes (Toolbar Header)</h3>
+          <ul>
+            <li><strong>Split View (Default)</strong>: Shows the Monaco code editor on the left and the 3D WebGL viewport on the right with an interactive draggable splitter.</li>
+            <li><strong>Code Focus</strong>: Collapses the 3D viewport to maximize code editing area for heavy scripting.</li>
+            <li><strong>3D Focus</strong>: Maximizes the 3D viewport for detailed structural inspection, beam measurement, and node manipulation.</li>
+          </ul>
+
+          <h3>Detached Multi-Monitor Viewport</h3>
+          <p>Click the <strong>Detach Viewport</strong> button on the toolbar to pop out the 3D viewport into its own standalone window. You can drag the 3D viewport onto a secondary monitor while keeping your code editor full-screen on your primary monitor. Clicking the <strong>Dock Window</strong> button seamlessly re-attaches the viewport.</p>
+        </div>
+      </section>
+
+      <!-- 3. MONACO CODE EDITOR -->
+      <section id="monaco-editor">
+        <h2>3. Monaco JBeam Code Editor</h2>
+        <p>Powered by the same industry-leading editor behind Visual Studio Code, customized with a dedicated BeamNG grammar.</p>
+
+        <div class="feature-card">
+          <h3>Capabilities</h3>
+          <ul>
+            <li><strong>Monarch Syntax Highlighting</strong>: Full recognition of BeamNG keywords (<code>nodes</code>, <code>beams</code>, <code>triangles</code>, <code>slots</code>, <code>slots2</code>, <code>variables</code>, <code>flexbodies</code>, etc.).</li>
+            <li><strong>Bracket Pair Colorization</strong>: Distinct rainbow brackets for deep nested JSON/SJSON tables.</li>
+            <li><strong>Real-time Code Folding & Minimap</strong>: Collapse entire sub-sections or part definitions.</li>
+            <li><strong>Comment Preservation</strong>: 100% preservation of single-line (<code>//</code>) and multi-line (<code>/* ... */</code>) comments during automated AST transforms.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 4. BIDIRECTIONAL AST SYNC -->
+      <section id="ast-sync">
+        <h2>4. Bidirectional AST Synchronization</h2>
+        <p>JBeam.editor implements a customized lossless SJSON parser and Abstract Syntax Tree (AST) updater.</p>
+
+        <div class="feature-card">
+          <h3>How it Works</h3>
+          <ol>
+            <li>When a node is selected in 3D and translated along an axis, the coordinate delta is computed.</li>
+            <li>The AST updater locates the exact line and token index of that node in the source document.</li>
+            <li>Only the numerical values for <code>[x, y, z]</code> are replaced with high precision, leaving surrounding whitespace and inline annotations intact.</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- 5. 3D STRUCTURE VIEWPORT -->
+      <section id="viewport-3d">
+        <h2>5. 3D Structure Viewport</h2>
+        <p>A WebGL Three.js physics renderer designed specifically for vehicle skeleton structures.</p>
+
+        <div class="feature-card">
+          <h3>Visual Elements</h3>
+          <ul>
+            <li><strong>Nodes</strong>: Rendered as interactive 3D spheres. Hovering reveals node names and coordinates; clicking selects the node.</li>
+            <li><strong>Beams</strong>: Rendered as connecting lines color-coded by their physical function:</li>
+          </ul>
+
+          <div class="legend-grid">
+            <div class="legend-item"><span class="color-swatch" style="background:#00D2FF"></span>NORMAL Beam</div>
+            <div class="legend-item"><span class="color-swatch" style="background:#9C27B0"></span>HYDRO (Steering/Suspension)</div>
+            <div class="legend-item"><span class="color-swatch" style="background:#4CAF50"></span>SUPPORT Beam</div>
+            <div class="legend-item"><span class="color-swatch" style="background:#FF9800"></span>BOUNDED Beam</div>
+            <div class="legend-item"><span class="color-swatch" style="background:#E91E63"></span>ANISOTROPIC Beam</div>
+            <div class="legend-item"><span class="color-swatch" style="background:#607D8B"></span>LBEAM</div>
+          </div>
+
+          <ul>
+            <li><strong>Triangles & Quads</strong>: Rendered as semi-transparent surfaces with dual-sided lighting for aerodynamic drag and vehicle collision geometry.</li>
+            <li><strong>Node Labels</strong>: Billboard text tags floating above each node, toggleable via the <strong>Labels</strong> button.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 6. GIZMOS & MULTI-MOVE -->
+      <section id="gizmos-manipulation">
+        <h2>6. Gizmos & Multi-Node Manipulation</h2>
+        <p>Precise transform manipulation directly inside the 3D viewport.</p>
+
+        <div class="feature-card">
+          <h3>Multi-Select & Cluster Move</h3>
+          <ul>
+            <li><strong>Single Selection</strong>: Left-click any node in 3D or in the Monaco source editor.</li>
+            <li><strong>Multi-Select</strong>: Hold <span class="key-badge">Shift</span> and click additional nodes.</li>
+            <li><strong>Centroid Translation Gizmo</strong>: When multiple nodes are selected, a unified gizmo appears at the bounding center of the cluster. Dragging moves all selected nodes simultaneously while preserving their relative geometry.</li>
+            <li><strong>Reset Offsets (<span class="key-badge">Alt + G</span>)</strong>: Instantly resets node gizmo offsets back to their original coordinates.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 7. BLENDER ORIENTATION GIZMO -->
+      <section id="orientation-gizmo">
+        <h2>7. Blender-Style Orientation Gizmo</h2>
+        <p>Located in the top-right corner of the 3D viewport, this interactive coordinate widget allows instant camera snapping.</p>
+
+        <div class="feature-card">
+          <h3>Interaction</h3>
+          <ul>
+            <li><strong>Click Axes</strong>: Click on <strong>+X</strong>, <strong>-X</strong>, <strong>+Y</strong>, <strong>-Y</strong>, <strong>+Z</strong>, or <strong>-Z</strong> to snap the camera directly to Front, Rear, Left, Right, Top, or Bottom orthographic view.</li>
+            <li><strong>Drag Rotation</strong>: Left-click and drag the orientation sphere to orbit smoothly around the vehicle center.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 8. SYMMETRY ENGINE -->
+      <section id="symmetry-engine">
+        <h2>8. Bilateral Symmetry Engine</h2>
+        <p>BeamNG vehicles rely on strict lateral symmetry across the vehicle centerline ($X=0$).</p>
+
+        <div class="feature-card">
+          <h3>Mirror Pair Detection</h3>
+          <p>JBeam.editor detects bilateral node pairs based on BeamNG naming conventions:</p>
+          <pre><code>fr1l <---> fr1r    (Left & Right)
+door_fl <---> door_fr
+susp_arm_l <---> susp_arm_r</code></pre>
+          <p>When the <strong>Symmetry</strong> button is enabled on the toolbar, dragging node <code>f1l</code> in 3D automatically updates <code>f1r</code> with mirrored X coordinates ($-X$).</p>
+        </div>
+      </section>
+
+      <!-- 9. GEOMETRY TOOLS -->
+      <section id="geometry-tools">
+        <h2>9. Geometry & Modeling Tools</h2>
+        <p>Rapid modeling operations accessible directly from the toolbar and context menu.</p>
+
+        <div class="feature-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Tool</th>
+                <th>Description</th>
+                <th>Shortcut</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Extrude Nodes</strong></td>
+                <td>Extrudes selected nodes along an offset vector, creating new nodes and connecting beams automatically.</td>
+                <td><span class="key-badge">E</span></td>
+              </tr>
+              <tr>
+                <td><strong>Quick Connect</strong></td>
+                <td>Creates structural connecting beams between all currently selected node pairs.</td>
+                <td><span class="key-badge">F</span></td>
+              </tr>
+              <tr>
+                <td><strong>Subdivide Beam</strong></td>
+                <td>Splits a beam in half by generating a new midpoint node and two child half-beams.</td>
+                <td><span class="key-badge">W</span></td>
+              </tr>
+              <tr>
+                <td><strong>Flip Surface</strong></td>
+                <td>Inverts the face normal of a selected collision triangle or quad.</td>
+                <td><span class="key-badge">Alt + F</span></td>
+              </tr>
+              <tr>
+                <td><strong>Prefix Part Nodes</strong></td>
+                <td>Bulk-prefixes all nodes in a part to avoid identifier collisions across mod files.</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 10. MULTI-PART ASSEMBLY -->
+      <section id="assembly-slots">
+        <h2>10. Multi-Part Assembly & Slot Manager</h2>
+        <p>Modern BeamNG vehicles consist of dozens of separate <code>.jbeam</code> files connected through a slot hierarchy.</p>
+
+        <div class="feature-card">
+          <h3>Capabilities</h3>
+          <ul>
+            <li><strong>Variant (.pc) Loader</strong>: Select any vehicle part configuration file to composite all matching chassis, suspension, engine, and body parts into one unified 3D skeleton.</li>
+            <li><strong>Interactive Slot Swapping</strong>: Change parts using slot dropdown menus (e.g. swap standard cab for a sleeper cab).</li>
+            <li><strong>Independent Part Visibility</strong>: Click the eye icon <code>👁️</code> next to any part in the assembly list to hide or isolate specific sections.</li>
+            <li><strong>Part Color Coding</strong>: Toggle between coloring by <em>Beam Type</em> and coloring by <em>Vehicle Part</em> to distinguish overlapping sub-assemblies.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 11. DAE & BLUEPRINTS -->
+      <section id="reference-dae">
+        <h2>11. Reference DAE & Blueprint Overlays</h2>
+        <p>Align physics skeletons against 3D bodywork and 2D manufacturer technical blueprints.</p>
+
+        <div class="feature-card">
+          <h3>Reference Overlays</h3>
+          <ul>
+            <li><strong>DAE 3D Mesh Overlay</strong>: Load the vehicle's <code>.dae</code> Collada model. The mesh renders as a translucent guide in the 3D viewport, allowing you to position crash nodes flush with the visual body panels.</li>
+            <li><strong>Blueprint Projections</strong>: Load technical side, front, and top orthographic blueprint images with adjustable scale, opacity, and coordinate offsets.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 12. POWERTRAIN -->
+      <section id="powertrain">
+        <h2>12. Powertrain Visualizer</h2>
+        <p>Inspect and validate the mechanical torque flow of the vehicle.</p>
+
+        <div class="feature-card">
+          <h3>Interactive Component Graph</h3>
+          <p>Automatically scans the <code>powertrain</code> section in the vehicle JBeam and generates an interactive flow graph:</p>
+          <pre><code>[mainEngine] ---> [clutch] ---> [gearbox] ---> [transfercase] ---> [frontDiff / rearDiff] ---> [wheels]</code></pre>
+          <p>Hover over components to view gear ratios, differential bias ratios, and drive shaft connections.</p>
+        </div>
+      </section>
+
+      <!-- 13. SIM CONNECTION -->
+      <section id="sim-connection">
+        <h2>13. Live Simulation Connection</h2>
+        <p>Connect JBeam.editor directly to a running instance of <strong>BeamNG.drive</strong> via a real-time socket bridge.</p>
+
+        <div class="feature-card highlight">
+          <h3>Real-time Features</h3>
+          <ul>
+            <li><strong>Live Deformation Mirroring</strong>: Watch nodes deform and deflect in JBeam.editor as your vehicle crashes in real-time in BeamNG.</li>
+            <li><strong>Instant Vehicle Reload (<span class="key-badge">Ctrl + R</span>)</strong>: Reloads the active vehicle in BeamNG without reloading the game or map.</li>
+            <li><strong>Bidirectional Node Selection</strong>: Selecting a node in JBeam.editor highlights that exact node in the simulator's debug mode.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 14. DIAGNOSTICS -->
+      <section id="diagnostics">
+        <h2>14. Diagnostics & Problems Panel</h2>
+        <p>Catches common syntax errors, broken references, and geometry bugs before you test in-game.</p>
+
+        <div class="feature-card">
+          <h3>Automated Checks</h3>
+          <ul>
+            <li><strong>SJSON Syntax Errors</strong>: Unterminated brackets, missing commas, or corrupted tokens.</li>
+            <li><strong>Dangling Beams</strong>: Beams that reference non-existent node IDs.</li>
+            <li><strong>Duplicate Nodes</strong>: Multiple nodes sharing identical identifier names within the same part.</li>
+            <li><strong>Degenerate Triangles</strong>: Collinear nodes forming triangles with zero surface area.</li>
+            <li><strong>Non-numeric Coordinates</strong>: Catches invalid strings or missing coordinate components.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 15. INSTALLER & AUTO-UPDATES -->
+      <section id="installer-updates">
+        <h2>15. Installer & Auto-Updates</h2>
+        <p>Packaging and continuous update mechanisms for JBeam.editor.</p>
+
+        <div class="feature-card">
+          <h3>Web Bootstrapper</h3>
+          <p>A lightweight, frameless installer featuring:</p>
+          <ul>
+            <li>Automatic discovery of Steam and BeamNG.drive installation folders.</li>
+            <li>File associations for <code>.jbeam</code> and <code>.pc</code> files with custom icons.</li>
+            <li>Right-click context menu integration (<em>Open with JBeam.editor</em>).</li>
+          </ul>
+
+          <h3>In-App Update Checker</h3>
+          <p>JBeam.editor silently queries GitHub Releases API on startup. When an update is detected, an authentic BeamNG-themed banner appears below the toolbar with a 1-click update link.</p>
+        </div>
+      </section>
+
+      <!-- 16. SHORTCUTS CHEAT SHEET -->
+      <section id="shortcuts-cheatsheet">
+        <h2>16. Shortcuts & Cheat Sheet</h2>
+        
+        <div class="feature-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Shortcut</th>
+                <th>Context</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Save File</td>
+                <td><span class="key-badge">Ctrl + S</span></td>
+                <td>Global</td>
+              </tr>
+              <tr>
+                <td>Open File</td>
+                <td><span class="key-badge">Ctrl + O</span></td>
+                <td>Global</td>
+              </tr>
+              <tr>
+                <td>Reload Vehicle in Sim</td>
+                <td><span class="key-badge">Ctrl + R</span></td>
+                <td>Sim Connected</td>
+              </tr>
+              <tr>
+                <td>Reset Gizmo Offset</td>
+                <td><span class="key-badge">Alt + G</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Toggle Left Sidebar</td>
+                <td><span class="key-badge">Ctrl + B</span></td>
+                <td>Global</td>
+              </tr>
+              <tr>
+                <td>Snap Camera: Front View</td>
+                <td><span class="key-badge">Numpad 1</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Snap Camera: Side View</td>
+                <td><span class="key-badge">Numpad 3</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Snap Camera: Top View</td>
+                <td><span class="key-badge">Numpad 7</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Toggle Perspective / Orthographic</td>
+                <td><span class="key-badge">Numpad 5</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Invert View (Opposite Side)</td>
+                <td><span class="key-badge">Numpad 9</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Extrude Selected Nodes</td>
+                <td><span class="key-badge">E</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Quick-Connect Beams</td>
+                <td><span class="key-badge">F</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Subdivide Selected Beam</td>
+                <td><span class="key-badge">W</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Flip Triangle / Quad Normal</td>
+                <td><span class="key-badge">Alt + F</span></td>
+                <td>3D Viewport</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    // Live Search Filter for Navigation and Sections
+    const searchInput = document.getElementById('doc-search');
+    const navItems = document.querySelectorAll('.nav-item');
+    const sections = document.querySelectorAll('section');
+
+    searchInput.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      navItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        const href = item.getAttribute('href');
+        const targetSection = document.querySelector(href);
+        const sectionText = targetSection ? targetSection.textContent.toLowerCase() : '';
+
+        if (!q || text.includes(q) || sectionText.includes(q)) {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = 'none';
+        }
+      });
+    });
+
+    // Active Section Tracking on Scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.id;
+          navItems.forEach(item => {
+            if (item.getAttribute('href') === `#${id}`) {
+              item.classList.add('active');
+            } else {
+              item.classList.remove('active');
+            }
+          });
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    sections.forEach(s => observer.observe(s));
+  </script>
+</body>
+</html>
+
