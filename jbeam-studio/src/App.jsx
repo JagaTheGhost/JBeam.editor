@@ -3299,7 +3299,7 @@ export function App() {
         <div className="detached-banner">
           <span className="detached-banner-text">
             <img
-              src="/icons/partconfig-dark.png"
+              src="./icons/partconfig-dark.png"
               alt="3D Viewport Detached"
               className="detached-banner-logo-img"
             />
@@ -3358,7 +3358,7 @@ export function App() {
             <div className="empty-state-card">
               <div className="empty-state-brand">
                 <img
-                  src="/icons/jbeam-dark.png"
+                  src="./icons/jbeam-dark.png"
                   alt="JBeam.editor Logo"
                   className="empty-state-logo-img"
                 />

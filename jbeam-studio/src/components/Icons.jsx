@@ -55,7 +55,7 @@ export function QuadIcon({ size = 16, className = '' }) {
 }
 
 export function SnapIcon({ size = 16, className = '', active = false }) {
-  const iconUrl = active ? '/icons/magnet_ON_State.png' : '/icons/magnet_OFF_State.png';
+  const iconUrl = active ? './icons/magnet_ON_State.png' : './icons/magnet_OFF_State.png';
   return (
     <span
       className={`sidebar-tab-icon-mask ${className}`}
@@ -71,7 +71,7 @@ export function SnapIcon({ size = 16, className = '', active = false }) {
 }
 
 export function SymmetryIcon({ size = 16, className = '', active = false }) {
-  const iconUrl = active ? '/icons/mirror_ON_State.png' : '/icons/mirror_OFF_State.png';
+  const iconUrl = active ? './icons/mirror_ON_State.png' : './icons/mirror_OFF_State.png';
   return (
     <span
       className={`sidebar-tab-icon-mask ${className}`}
@@ -164,8 +164,8 @@ export function AssemblyIcon({ size = 18, className = '' }) {
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        maskImage: 'url(/icons/sidebar-assembly.png)',
-        WebkitMaskImage: 'url(/icons/sidebar-assembly.png)'
+        maskImage: 'url(./icons/sidebar-assembly.png)',
+        WebkitMaskImage: 'url(./icons/sidebar-assembly.png)'
       }}
       aria-hidden="true"
     />
@@ -420,8 +420,8 @@ export function InspectorIcon({ size = 18, className = '' }) {
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        maskImage: 'url(/icons/sidebar-inspector.png)',
-        WebkitMaskImage: 'url(/icons/sidebar-inspector.png)'
+        maskImage: 'url(./icons/sidebar-inspector.png)',
+        WebkitMaskImage: 'url(./icons/sidebar-inspector.png)'
       }}
       aria-hidden="true"
     />
@@ -435,8 +435,8 @@ export function StructureIcon({ size = 18, className = '' }) {
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        maskImage: 'url(/icons/sidebar-structure.png)',
-        WebkitMaskImage: 'url(/icons/sidebar-structure.png)'
+        maskImage: 'url(./icons/sidebar-structure.png)',
+        WebkitMaskImage: 'url(./icons/sidebar-structure.png)'
       }}
       aria-hidden="true"
     />
@@ -534,8 +534,8 @@ export function PowertrainIcon({ size = 16, className = '' }) {
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        maskImage: 'url(/icons/powertrain-electric.png)',
-        WebkitMaskImage: 'url(/icons/powertrain-electric.png)'
+        maskImage: 'url(./icons/powertrain-electric.png)',
+        WebkitMaskImage: 'url(./icons/powertrain-electric.png)'
       }}
       aria-hidden="true"
     />
@@ -716,8 +716,8 @@ export function TurboIcon({ size = 14, className = '' }) {
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        maskImage: 'url(/icons/turbo-automotive.png)',
-        WebkitMaskImage: 'url(/icons/turbo-automotive.png)'
+        maskImage: 'url(./icons/turbo-automotive.png)',
+        WebkitMaskImage: 'url(./icons/turbo-automotive.png)'
       }}
       aria-hidden="true"
     />

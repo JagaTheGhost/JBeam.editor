@@ -111,7 +111,7 @@ export function Toolbar({
       <div className="titlebar-left" ref={menuBarRef}>
         <div className="titlebar-brand" title="JBeam.editor">
           <img
-            src="/icons/jbeam-dark.png"
+            src="./icons/jbeam-dark.png"
             alt="JBeam.editor"
             className="titlebar-logo-img"
           />
@@ -328,7 +328,7 @@ export function Toolbar({
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                     <img
-                      src="/icons/partconfig-dark.png"
+                      src="./icons/partconfig-dark.png"
                       alt=""
                       style={{ width: '13px', height: '13px', objectFit: 'contain' }}
                     />
@@ -405,7 +405,7 @@ export function Toolbar({
                     if (window.jbeamAPI?.openDocs) {
                       window.jbeamAPI.openDocs();
                     } else {
-                      window.open('/docs/index.html', '_blank');
+                      window.open('./docs/index.html', '_blank');
                     }
                   }}
                 >

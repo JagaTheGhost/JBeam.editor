@@ -237,7 +237,7 @@ function buildApplicationMenu(win) {
           },
           { type: 'separator' },
           { role: 'reload', accelerator: 'F5' },
-          { role: 'toggleDevTools', accelerator: 'F12' }
+          ...(!app.isPackaged ? [{ role: 'toggleDevTools', accelerator: 'F12' }] : [])
         ]
       },
       {
@@ -290,7 +290,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: true
+      webSecurity: true,
+      devTools: !app.isPackaged
     }
   });
 
@@ -340,7 +341,8 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            webSecurity: true
+            webSecurity: true,
+            devTools: !app.isPackaged
           }
         }
       };
@@ -363,7 +365,8 @@ function createWindow() {
         webPreferences: {
           nodeIntegration: false,
           contextIsolation: true,
-          sandbox: true
+          sandbox: true,
+          devTools: !app.isPackaged
         }
       }
     };
@@ -403,10 +406,10 @@ function createWindow() {
     }
   });
 
-  // Enable F12/Ctrl+Shift+I to toggle DevTools, and F5 to reload
+  // Enable F12/Ctrl+Shift+I to toggle DevTools (in dev only), and F5 to reload
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
-      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      if (!app.isPackaged && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) {
         mainWindow.webContents.toggleDevTools();
         event.preventDefault();
       }
