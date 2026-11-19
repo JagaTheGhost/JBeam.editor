@@ -47,12 +47,19 @@ contextBridge.exposeInMainWorld('jbeamAPI', {
 
   // In-App Auto-Update Bridge
   checkForUpdates: (repo) => ipcRenderer.invoke('app-check-for-updates', repo),
+  downloadUpdate: (payload) => ipcRenderer.invoke('app-download-update', payload),
+  installUpdate: (payload) => ipcRenderer.invoke('app-install-update', payload),
   openExternalUrl: (url) => ipcRenderer.invoke('app-open-external', url),
   openDocs: () => ipcRenderer.invoke('app-open-docs'),
   onUpdateAvailable: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('app-update-available', subscription);
     return () => ipcRenderer.removeListener('app-update-available', subscription);
+  },
+  onUpdateProgress: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('app-update-progress', subscription);
+    return () => ipcRenderer.removeListener('app-update-progress', subscription);
   },
 
   // Native Menu Event Handlers

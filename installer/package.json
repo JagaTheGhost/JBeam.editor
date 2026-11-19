@@ -15,7 +15,7 @@
     "artifactName": "JBeam.editor-Setup-v0.2Beta.${ext}",
     "win": {
       "target": "portable",
-      "icon": "assets/bng-logo.png"
+      "icon": "assets/logo.png"
     },
     "directories": {
       "output": "dist"

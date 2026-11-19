@@ -112,7 +112,7 @@ export function Toolbar({
       <div className="titlebar-left" ref={menuBarRef}>
         <div className="titlebar-brand" title="JBeam.editor">
           <img
-            src="./icons/jbeam-dark.png"
+            src="./icons/logo.png"
             alt="JBeam.editor"
             className="titlebar-logo-img"
           />
@@ -329,7 +329,7 @@ export function Toolbar({
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                     <img
-                      src="./icons/partconfig-dark.png"
+                      src="./icons/detached-logo.png"
                       alt=""
                       style={{ width: '13px', height: '13px', objectFit: 'contain' }}
                     />

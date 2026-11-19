@@ -270,7 +270,7 @@ function buildApplicationMenu(win) {
                 title: 'About JBeam.editor',
                 message: 'JBeam.editor — Modding Edition',
                 detail: 'Professional hybrid code editor & 3D development environment for BeamNG.drive vehicle physics.',
-                icon: resolveIcon('jbeam-dark.png')
+                icon: resolveIcon('logo.ico') || resolveIcon('logo.png')
               });
             }
           }
@@ -286,7 +286,7 @@ function buildApplicationMenu(win) {
 }
 
 function createWindow() {
-  const mainIcon = resolveIcon('jbeam-dark.png');
+  const mainIcon = resolveIcon('logo.ico') || resolveIcon('logo.png');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -329,8 +329,8 @@ function createWindow() {
   });
 
   // Support Detached / Pop-out Windows and External Documentation Windows
-  const detachedIcon = resolveIcon('partconfig-dark.png');
-  const docIcon = resolveIcon('beamng-icon.png') || resolveIcon('bng-logo.png') || detachedIcon;
+  const detachedIcon = resolveIcon('detached-logo.ico') || resolveIcon('detached-logo.png') || resolveIcon('detached logo.ico');
+  const docIcon = resolveIcon('logo.ico') || resolveIcon('logo.png') || detachedIcon;
 
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
     // 1. Detached 3D Viewport Popout (Internal React window with custom dark titlebar)
@@ -758,7 +758,7 @@ function createWindow() {
         titleBarStyle: 'default',
         autoHideMenuBar: true,
         title: 'JBeam.editor Documentation & Reference Manual',
-        icon: resolveIcon('bng-logo.png') || resolveIcon('jbeam.png'),
+        icon: resolveIcon('logo.ico') || resolveIcon('logo.png'),
         backgroundColor: '#1A1A1A'
       });
       docsWin.loadFile(target);

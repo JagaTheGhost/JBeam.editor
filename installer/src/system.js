@@ -67,7 +67,9 @@ function getAppExePath(installDir) {
  */
 function setupShortcuts(installDir, { createDesktop = true, createStartMenu = true } = {}) {
   const exePath = getAppExePath(installDir);
-  const iconPath = path.join(installDir, 'assets', 'jbeam.png');
+  const iconPath = fs.existsSync(path.join(installDir, 'assets', 'logo.ico'))
+    ? path.join(installDir, 'assets', 'logo.ico')
+    : path.join(installDir, 'assets', 'logo.png');
 
   if (createDesktop) {
     const desktopDir = path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'Desktop');
@@ -100,8 +102,12 @@ function setupShortcuts(installDir, { createDesktop = true, createStartMenu = tr
  */
 function registerFileAssociations(installDir, { associateJbeam = true, associatePc = true, addContextMenu = true } = {}) {
   const exePath = getAppExePath(installDir);
-  const iconJbeam = path.join(installDir, 'assets', 'jbeam.png');
-  const iconPc = path.join(installDir, 'assets', 'partconfig.png');
+  const iconJbeam = fs.existsSync(path.join(installDir, 'assets', 'logo.ico'))
+    ? path.join(installDir, 'assets', 'logo.ico')
+    : path.join(installDir, 'assets', 'logo.png');
+  const iconPc = fs.existsSync(path.join(installDir, 'assets', 'detached-logo.ico'))
+    ? path.join(installDir, 'assets', 'detached-logo.ico')
+    : path.join(installDir, 'assets', 'detached-logo.png');
 
   if (associateJbeam) {
     runRegAdd('HKCU\\Software\\Classes\\.jbeam', '', 'REG_SZ', 'JBeam.editor.Document');
@@ -141,7 +147,9 @@ function registerFileAssociations(installDir, { associateJbeam = true, associate
 function registerUninstaller(installDir, version = 'v0.2Beta') {
   const uninstallKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\JBeamEditor';
   const exePath = getAppExePath(installDir);
-  const iconPath = path.join(installDir, 'assets', 'jbeam.png');
+  const iconPath = fs.existsSync(path.join(installDir, 'assets', 'logo.ico'))
+    ? path.join(installDir, 'assets', 'logo.ico')
+    : path.join(installDir, 'assets', 'logo.png');
 
   // Create an uninstall PowerShell script
   const uninstallScriptPath = path.join(installDir, 'uninstall.bat');

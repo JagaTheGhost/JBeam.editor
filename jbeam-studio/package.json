@@ -37,7 +37,7 @@
           ]
         }
       ],
-      "icon": "public/icons/bng-logo.png"
+      "icon": "public/icons/logo.png"
     }
   },
   "dependencies": {

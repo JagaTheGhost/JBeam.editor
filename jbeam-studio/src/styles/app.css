@@ -9220,6 +9220,117 @@ input[type="number"] {
   color: #FFFFFF;
 }
 
+.bng-update-banner.has-progress {
+  padding: 10px 16px;
+}
+
+.bng-update-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+  max-width: 380px;
+}
+
+.bng-update-progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #FFFFFF;
+  font-weight: 500;
+}
+
+.bng-update-progress-details {
+  color: var(--text-muted, #B3B3B3);
+  font-size: 10px;
+  margin-left: 8px;
+}
+
+.bng-update-progress-track {
+  width: 100%;
+  height: 6px;
+  background-color: #141414;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bng-update-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #FF6600, #FF8533);
+  box-shadow: 0 0 8px rgba(255, 102, 0, 0.6);
+  transition: width 0.15s ease-out;
+}
+
+.bng-update-format-select {
+  background: #181818;
+  border: 1px solid var(--border-color, #3D3D3D);
+  color: var(--text-main, #FFFFFF);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.bng-update-format-select:hover,
+.bng-update-format-select:focus {
+  border-color: var(--bng-orange, #FF6600);
+}
+
+.bng-update-status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bng-orange, #FF6600);
+  background: rgba(255, 102, 0, 0.12);
+  border: 1px solid rgba(255, 102, 0, 0.3);
+  padding: 3px 10px;
+  border-radius: 3px;
+}
+
+.bng-update-btn.success-btn {
+  background-color: #2E7D32 !important;
+  border-color: #388E3C !important;
+  color: #FFFFFF !important;
+}
+
+.bng-update-btn.success-btn:hover {
+  background-color: #388E3C !important;
+}
+
+.bng-update-notes-link {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #B3B3B3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.bng-update-notes-link:hover {
+  color: #FFFFFF;
+}
+
+.bng-update-desc.completed {
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+.bng-update-desc.error {
+  color: #FF5252;
+  font-weight: 600;
+}
+
+.bng-update-pulse.green {
+  background-color: #4CAF50;
+  box-shadow: 0 0 8px #4CAF50;
+}
+
 
 /* ==========================================================================
    Mechanical Workspace Styles

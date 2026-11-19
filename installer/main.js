@@ -27,7 +27,7 @@ function createWindow() {
     resizable: false,
     transparent: false,
     backgroundColor: '#1A1A1A',
-    icon: path.join(__dirname, 'assets', 'bng-logo.png'),
+    icon: path.join(__dirname, 'assets', 'logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

@@ -28,7 +28,7 @@ A lightweight, frameless, modern installer for **JBeam.editor** designed specifi
 
 ```
 installer/
- ├── assets/                   # App icons and graphics (bng-logo.png, etc.)
+ ├── assets/                   # App icons and graphics (logo.png, detached-logo.png, etc.)
  ├── src/
  │    ├── detector.js          # Steam & BeamNG registry auto-discovery engine
  │    ├── downloader.js        # GitHub Releases stream downloader & zip extractor

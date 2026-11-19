@@ -92,7 +92,7 @@ export function DetachedViewportApp() {
         document.head.appendChild(link);
       }
       link.type = 'image/png';
-      link.href = './icons/partconfig-dark.png';
+      link.href = './icons/detached-logo.png';
     } catch (e) {}
   }, [activeTabTitle]);
 
@@ -624,7 +624,7 @@ export function DetachedViewportApp() {
         <div className="detached-window-title titlebar-left">
           <div className="titlebar-brand" title="JBeam.editor — 3D Viewport">
             <img
-              src="./icons/partconfig-dark.png"
+              src="./icons/detached-logo.png"
               alt="3D Viewport Logo"
               className="detached-window-logo-img"
             />

@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added startup and workspace-open safety notice warning modders to maintain backup copies of working vehicle projects while using early beta builds. Includes a *"Don't show again until next update (v0.2Beta)"* suppression option.
 
 ### 🌟 New Features & Major Additions
+- **Universal In-Place Self-Updater**:
+  - Direct 1-click in-app update mechanism with live streaming progress (percentage, download speed, ETA, and byte counters).
+  - Background extraction and staging into `%TEMP%`.
+  - Zero-downtime detached swap updater with automatic transient file lock handling (`robocopy` with retry and `xcopy` fallback) and automatic UAC elevation protection for protected install paths.
+  - Works identically whether installed via the setup bootstrapper or run as a standalone portable folder.
+- **Custom Brand Identity**:
+  - Replaced all legacy BeamNG trademarked assets with custom node-beam branding:
+    - Custom orange node-beam triangle for the primary application, installer, and documentation.
+    - Custom blue node-beam triangle for secondary detached multi-monitor viewport windows.
+  - High-DPI transparent assets and multi-resolution Windows `.ico` files (16px to 256px) generated across all modules.
+- **Universal In-Place Self-Updater**:
+  - Direct 1-click in-app update mechanism with live streaming progress (percentage, download speed, ETA, and byte counters).
+  - Background extraction and staging into `%TEMP%`.
+  - Zero-downtime detached swap updater with automatic transient file lock handling (`robocopy` with retry and `xcopy` fallback) and automatic UAC elevation protection for protected install paths.
+  - Works identically whether installed via the setup bootstrapper or run as a standalone portable folder.
 - **Dedicated Mechanical Workspace & Dyno Simulator** `[EXPERIMENTAL]`:
   - Interactive Dyno torque & horsepower curve viewer with live RPM scrub slider, peak horsepower/torque calculation, and transmission top speed readout.
   - Multi-ratio Gearing & Sawtooth simulator with customizable tire radius and final drive ratios.
@@ -52,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Live node coordinate updates and two-way lossy-free AST synchronization.
   - Metric engineering notation display for beam springs and damping (`kN/m`, `MN/m`).
 - **Comprehensive Test Suite**:
-  - 27 automated test suites passing with 100% green status.
+  - 36 automated test suites passing with green status.
 
 ---
 

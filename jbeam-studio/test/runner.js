@@ -33,6 +33,7 @@ import { runDaeMeshPanelTests } from './daeMeshPanel.test.js';
 import { runMechanicalWorkspaceTests } from './mechanicalWorkspace.test.js';
 import { runElementTypesAndSurfaceClickTests } from './elementTypesAndSurfaceClick.test.js';
 import { runConnectedTopologyFocusTests } from './connectedTopologyFocus.test.js';
+import { runUpdaterTests } from './updater.test.js';
 
 console.log('============================================');
 console.log('       JBEAM STUDIO AUTOMATED TEST SUITE    ');
@@ -109,6 +110,8 @@ async function runAll() {
     runElementTypesAndSurfaceClickTests();
     console.log('');
     runConnectedTopologyFocusTests();
+    console.log('');
+    runUpdaterTests();
     console.log('');
     console.log('============================================');
     console.log('  ALL AUTOMATED TESTS PASSED SUCCESSFULLY!  ');
