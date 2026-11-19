@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ChevronDownIcon } from './Icons.jsx';
+import { ChevronDownIcon, CheckIcon } from './Icons.jsx';
 
 export default function CustomSelect({
   value,
@@ -153,7 +153,7 @@ export default function CustomSelect({
                       <span className="bng-custom-select-item-title">{opt.label}</span>
                       {opt.sublabel && <span className="bng-custom-select-item-sub">{opt.sublabel}</span>}
                     </div>
-                    {isSelected && <span className="bng-custom-select-item-check">✓</span>}
+                    {isSelected && <span className="bng-custom-select-item-check"><CheckIcon size={12} /></span>}
                   </div>
                 );
               })

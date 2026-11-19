@@ -171,7 +171,7 @@ ipcMain.handle('start-install', async (event, config) => {
     saveInitialSettings(beamngPaths);
 
     sendStatus('Registering Windows uninstaller...');
-    registerUninstaller(installDir, 'v0.1Beta');
+    registerUninstaller(installDir, 'v0.2Beta');
 
     sendStatus('Setup complete!');
     return { success: true, installDir };

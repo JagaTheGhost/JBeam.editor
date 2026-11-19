@@ -1,15 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import CustomSelect from '../../components/CustomSelect.jsx';
+import NumberStepper from '../../components/NumberStepper.jsx';
 import { getSymmetricNodeId } from '../jbeam/symmetryUtils.js';
 import { normalizeBeamType } from '../viewport/visualizers.js';
 import { resolveFlexbodyAssociations } from '../jbeam/flexbodyUtils.js';
-import { SubdivideIcon, MeshIcon, FocusIcon, EditIcon, CheckIcon, CloseIcon, TagIcon } from '../../components/Icons.jsx';
+import { SubdivideIcon, MeshIcon, FocusIcon, EditIcon, CheckIcon, CloseIcon, TagIcon, WarningIcon } from '../../components/Icons.jsx';
 import { formatBatchNodeName } from '../jbeam/batchRenamer.js';
+import { BEAM_PRESETS, formatNtoMetric } from './inspectorUtils.js';
+
+function getInputTypeForProp(val) {
+  if (typeof val === 'string' && (val.includes('$') || val.includes('=') || isNaN(Number(val)))) {
+    return 'text';
+  }
+  return 'number';
+}
 
 export function ElementInspector({
   selectedNodeId,
   selectedBeamInfo,
   selectedSurfaceInfo = null,
+  multiSelectedNodes = [],
+  onMultiSelectChange = null,
   jbeamParts,
   onNodeCoordinateChange,
   onRenameNode,
@@ -29,6 +40,9 @@ export function ElementInspector({
   highlightedSubmesh = null,
   onHighlightSubmesh = null,
   onSelectNode = null,
+  onSelectBeam = null,
+  onUpdateBeamProperties = null,
+  onUpdateNodeProperties = null,
   isolateMatchingMesh = false,
   onToggleIsolateMesh = null,
   batchRenamePattern = '#fl',
@@ -44,6 +58,34 @@ export function ElementInspector({
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
 
+  // Local state for interactive beam physical properties
+  const [beamPropsInput, setBeamPropsInput] = useState({
+    beamSpring: '',
+    beamDamp: '',
+    beamDeform: '',
+    beamStrength: '',
+    beamPrecompression: ''
+  });
+
+  // Local state for interactive node physical properties
+  const [nodePropsInput, setNodePropsInput] = useState({
+    nodeWeight: '',
+    frictionCoef: ''
+  });
+
+  // Local state for interactive beam subdivision tool
+  const [subdivideCuts, setSubdivideCuts] = useState(1);
+  const [customSubdivideNodeName, setCustomSubdivideNodeName] = useState('');
+
+  // Reset subdivide state when selected beam changes
+  useEffect(() => {
+    setSubdivideCuts(1);
+    setCustomSubdivideNodeName('');
+  }, [selectedBeamInfo?.beamKey, selectedBeamInfo?.id1, selectedBeamInfo?.id2]);
+
+  // Determine the effective single node being inspected
+  const effectiveNodeId = selectedNodeId || (Array.isArray(multiSelectedNodes) && multiSelectedNodes.length === 1 ? multiSelectedNodes[0] : null);
+
   // Deeply resolve bi-directional flexbody and node group associations
   const flexbodyAssociations = useMemo(() => {
     return resolveFlexbodyAssociations(jbeamParts, {
@@ -52,56 +94,247 @@ export function ElementInspector({
     });
   }, [jbeamParts, visualMeshSubnames, visualMeshSubmeshDetails]);
 
-  // Reset rename state when selected node changes
-  useEffect(() => {
-    setIsEditingName(false);
-    setNameInput(selectedNodeId || '');
-  }, [selectedNodeId]);
-
-  // Locate selected node in active parts
-  let foundNode = null;
-  let foundPartName = null;
-
-  if (selectedNodeId && jbeamParts) {
+  // Calculate connected beams for the selected node
+  const connectedBeams = useMemo(() => {
+    if (!effectiveNodeId || !jbeamParts) return [];
+    const list = [];
+    const seen = new Set();
     const partKeys = Object.keys(jbeamParts).filter(k => k !== '__meta');
     for (const pKey of partKeys) {
       const part = jbeamParts[pKey];
-      if (part?.nodes && part.nodes[selectedNodeId]) {
-        foundNode = part.nodes[selectedNodeId];
-        foundPartName = pKey;
-        break;
+      if (part?.beams) {
+        for (const [bk, b] of Object.entries(part.beams)) {
+          if (bk === '__meta' || !b) continue;
+          const id1 = b['id1:'] || b[0];
+          const id2 = b['id2:'] || b[1];
+          if (id1 === effectiveNodeId || id2 === effectiveNodeId) {
+            const otherId = id1 === effectiveNodeId ? id2 : id1;
+            const pairKey = `${id1}__${id2}`;
+            if (!seen.has(pairKey)) {
+              seen.add(pairKey);
+              list.push({
+                partName: pKey,
+                beamKey: bk,
+                beam: b,
+                otherNodeId: otherId,
+                beamType: b.beamType || (bk.startsWith('hydro_') ? '|HYDRO' : '|NORMAL')
+              });
+            }
+          }
+        }
+      }
+    }
+    return list;
+  }, [effectiveNodeId, jbeamParts]);
+
+  // Reset rename state when selected node changes
+  useEffect(() => {
+    setIsEditingName(false);
+    setNameInput(effectiveNodeId || '');
+  }, [effectiveNodeId]);
+
+  // Locate selected node in active parts (robust against prefixing and cross-component namespaces)
+  let foundNode = null;
+  let foundPartName = null;
+
+  if (effectiveNodeId && jbeamParts) {
+    const partKeys = Object.keys(jbeamParts).filter(k => k !== '__meta');
+    for (const pKey of partKeys) {
+      const part = jbeamParts[pKey];
+      if (part?.nodes) {
+        if (part.nodes[effectiveNodeId]) {
+          foundNode = part.nodes[effectiveNodeId];
+          foundPartName = pKey;
+          break;
+        }
+        if (part.nodes[`${pKey}_${effectiveNodeId}`]) {
+          foundNode = part.nodes[`${pKey}_${effectiveNodeId}`];
+          foundPartName = pKey;
+          break;
+        }
+        for (const [nk, nd] of Object.entries(part.nodes)) {
+          if (nk === '__meta') continue;
+          if (nk === effectiveNodeId ||
+              nd?.id === effectiveNodeId ||
+              nd?.name === effectiveNodeId ||
+              `${pKey}_${nk}` === effectiveNodeId ||
+              nk === effectiveNodeId.replace(`${pKey}_`, '')) {
+            foundNode = nd;
+            foundPartName = pKey;
+            break;
+          }
+        }
+        if (foundNode) break;
       }
     }
   }
 
+  // Fallback: if effectiveNodeId exists, never drop down to Structure Summary while a node is selected!
+  if (!foundNode && effectiveNodeId) {
+    foundNode = {
+      id: effectiveNodeId,
+      name: effectiveNodeId,
+      posX: localCoords.x,
+      posY: localCoords.y,
+      posZ: localCoords.z,
+      pos: [localCoords.x, localCoords.y, localCoords.z]
+    };
+    foundPartName = jbeamParts ? Object.keys(jbeamParts).filter(k => k !== '__meta')[0] : 'main';
+  }
+
   // Synchronize local coordinate state with selection / live coords
   useEffect(() => {
-    if (liveCoords && liveCoords.id === selectedNodeId) {
-      setLocalCoords({
-        x: Number(liveCoords.pos[0] || 0),
-        y: Number(liveCoords.pos[1] || 0),
-        z: Number(liveCoords.pos[2] || 0)
+    if (liveCoords && liveCoords.id === effectiveNodeId) {
+      const lx = Number(liveCoords.pos[0] || 0);
+      const ly = Number(liveCoords.pos[1] || 0);
+      const lz = Number(liveCoords.pos[2] || 0);
+      setLocalCoords(prev => {
+        if (prev.x === lx && prev.y === ly && prev.z === lz) return prev;
+        return { x: lx, y: ly, z: lz };
       });
     } else if (foundNode) {
-      const px = foundNode.posX !== undefined ? foundNode.posX : (foundNode.pos ? foundNode.pos[0] : (foundNode.rx !== undefined ? foundNode.rx : 0));
-      const py = foundNode.posY !== undefined ? foundNode.posY : (foundNode.pos ? foundNode.pos[1] : (foundNode.ry !== undefined ? foundNode.ry : 0));
-      const pz = foundNode.posZ !== undefined ? foundNode.posZ : (foundNode.pos ? foundNode.pos[2] : (foundNode.rz !== undefined ? foundNode.rz : 0));
-      setLocalCoords({ x: Number(px), y: Number(py), z: Number(pz) });
+      const rawX = foundNode.posX !== undefined ? foundNode.posX : (foundNode.pos ? foundNode.pos[0] : (foundNode.rx !== undefined ? foundNode.rx : 0));
+      const rawY = foundNode.posY !== undefined ? foundNode.posY : (foundNode.pos ? foundNode.pos[1] : (foundNode.ry !== undefined ? foundNode.ry : 0));
+      const rawZ = foundNode.posZ !== undefined ? foundNode.posZ : (foundNode.pos ? foundNode.pos[2] : (foundNode.rz !== undefined ? foundNode.rz : 0));
+      const px = Number(rawX || 0);
+      const py = Number(rawY || 0);
+      const pz = Number(rawZ || 0);
+      setLocalCoords(prev => {
+        if (prev.x === px && prev.y === py && prev.z === pz) return prev;
+        return { x: px, y: py, z: pz };
+      });
     }
-  }, [selectedNodeId, foundNode, liveCoords]);
+  }, [
+    effectiveNodeId,
+    foundNode?.id,
+    foundNode?.posX,
+    foundNode?.posY,
+    foundNode?.posZ,
+    foundNode?.pos?.[0],
+    foundNode?.pos?.[1],
+    foundNode?.pos?.[2],
+    liveCoords?.id,
+    liveCoords?.pos?.[0],
+    liveCoords?.pos?.[1],
+    liveCoords?.pos?.[2]
+  ]);
 
   const handleCoordInput = (axis, value) => {
     const num = parseFloat(value);
     const updated = { ...localCoords, [axis]: isNaN(num) ? 0 : num };
     setLocalCoords(updated);
-    if (onNodeCoordinateChange && selectedNodeId) {
-      onNodeCoordinateChange(selectedNodeId, [updated.x, updated.y, updated.z]);
+    if (onNodeCoordinateChange && effectiveNodeId) {
+      onNodeCoordinateChange(effectiveNodeId, [updated.x, updated.y, updated.z]);
     }
   };
 
   // 1. BEAM INSPECTOR
-  if (selectedBeamInfo && selectedBeamInfo.beam) {
-    const { partName, beamKey, beam } = selectedBeamInfo;
+  let inspectedBeam = selectedBeamInfo?.beam;
+  let inspectedPartName = selectedBeamInfo?.partName;
+  let inspectedBeamKey = selectedBeamInfo?.beamKey;
+
+  if (selectedBeamInfo && jbeamParts) {
+    const targetId1 = selectedBeamInfo.id1 || selectedBeamInfo.beam?.['id1:'];
+    const targetId2 = selectedBeamInfo.id2 || selectedBeamInfo.beam?.['id2:'];
+
+    if (!inspectedBeam || Object.keys(inspectedBeam).length <= 4) {
+      for (const pKey of Object.keys(jbeamParts).filter(k => k !== '__meta')) {
+        const part = jbeamParts[pKey];
+        if (part?.beams) {
+          if (inspectedBeamKey && part.beams[inspectedBeamKey]) {
+            inspectedBeam = part.beams[inspectedBeamKey];
+            inspectedPartName = pKey;
+            break;
+          }
+          if (targetId1 && targetId2) {
+            for (const [bk, b] of Object.entries(part.beams)) {
+              if (bk === '__meta') continue;
+              if ((b['id1:'] === targetId1 && b['id2:'] === targetId2) || (b['id1:'] === targetId2 && b['id2:'] === targetId1)) {
+                inspectedBeam = b;
+                inspectedBeamKey = bk;
+                inspectedPartName = pKey;
+                break;
+              }
+            }
+            if (inspectedBeam) break;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback to selectedBeamInfo if not resolved in jbeamParts, guarding against orphaned cross-tab ghost beams
+  if ((!inspectedBeam || !inspectedBeam['id1:']) && selectedBeamInfo) {
+    const partKeys = jbeamParts ? Object.keys(jbeamParts).filter(k => k !== '__meta') : [];
+    const belongsToCurrentParts = partKeys.length === 0 ||
+      (selectedBeamInfo.partName && jbeamParts[selectedBeamInfo.partName]) ||
+      (selectedBeamInfo.id1 && Object.values(jbeamParts).some(p => p.nodes && (p.nodes[selectedBeamInfo.id1] || p.nodes[`${p.__partName || ''}_${selectedBeamInfo.id1}`]))) ||
+      (selectedBeamInfo.id2 && Object.values(jbeamParts).some(p => p.nodes && (p.nodes[selectedBeamInfo.id2] || p.nodes[`${p.__partName || ''}_${selectedBeamInfo.id2}`])));
+
+    if (belongsToCurrentParts) {
+      inspectedBeam = selectedBeamInfo.beam || {
+        'id1:': selectedBeamInfo.id1,
+        'id2:': selectedBeamInfo.id2,
+        beamType: selectedBeamInfo.beamType || '|NORMAL',
+        partName: inspectedPartName
+      };
+    } else {
+      inspectedBeam = null;
+    }
+  }
+
+  // Synchronize local beam & node properties with selection
+  useEffect(() => {
+    if (inspectedBeam) {
+      const bs = inspectedBeam.beamSpring !== undefined ? String(inspectedBeam.beamSpring) : '';
+      const bd = inspectedBeam.beamDamp !== undefined ? String(inspectedBeam.beamDamp) : '';
+      const bdef = inspectedBeam.beamDeform !== undefined ? String(inspectedBeam.beamDeform) : '';
+      const bstr = inspectedBeam.beamStrength !== undefined ? String(inspectedBeam.beamStrength) : '';
+      const bpre = inspectedBeam.beamPrecompression !== undefined ? String(inspectedBeam.beamPrecompression) : '1';
+      setBeamPropsInput(prev => {
+        if (
+          prev.beamSpring === bs &&
+          prev.beamDamp === bd &&
+          prev.beamDeform === bdef &&
+          prev.beamStrength === bstr &&
+          prev.beamPrecompression === bpre
+        ) {
+          return prev;
+        }
+        return {
+          beamSpring: bs,
+          beamDamp: bd,
+          beamDeform: bdef,
+          beamStrength: bstr,
+          beamPrecompression: bpre
+        };
+      });
+    }
+  }, [
+    inspectedBeam?.['id1:'],
+    inspectedBeam?.['id2:'],
+    inspectedBeam?.beamSpring,
+    inspectedBeam?.beamDamp,
+    inspectedBeam?.beamDeform,
+    inspectedBeam?.beamStrength,
+    inspectedBeam?.beamPrecompression
+  ]);
+
+  useEffect(() => {
+    if (foundNode) {
+      const nw = foundNode.nodeWeight !== undefined ? String(foundNode.nodeWeight) : '';
+      const fc = foundNode.frictionCoef !== undefined ? String(foundNode.frictionCoef) : '';
+      setNodePropsInput(prev => {
+        if (prev.nodeWeight === nw && prev.frictionCoef === fc) return prev;
+        return { nodeWeight: nw, frictionCoef: fc };
+      });
+    }
+  }, [effectiveNodeId, foundNode?.id, foundNode?.nodeWeight, foundNode?.frictionCoef]);
+
+  if (inspectedBeam && inspectedBeam['id1:'] && inspectedBeam['id2:']) {
+    const beam = inspectedBeam;
+    const partName = inspectedPartName || beam.__partName;
+    const beamKey = inspectedBeamKey || beam.__beamKey;
     const part = jbeamParts ? jbeamParts[partName] : null;
     let n1 = part?.nodes ? part.nodes[beam['id1:']] : null;
     let n2 = part?.nodes ? part.nodes[beam['id2:']] : null;
@@ -130,13 +363,50 @@ export function ElementInspector({
       ];
     }
 
+    const coreBeamPropKeys = ['beamSpring', 'beamDamp', 'beamDeform', 'beamStrength', 'beamPrecompression', 'beamType'];
     const otherBeamProps = Object.keys(beam).filter(
-      k => !['__meta', 'id1:', 'id2:', 'node1', 'node2', '__partName', '__beamKey'].includes(k)
+      k => !['__meta', 'id1:', 'id2:', 'node1', 'node2', '__partName', '__beamKey', ...coreBeamPropKeys].includes(k)
     );
 
     const normType = normalizeBeamType(beam.beamType || (beamKey?.startsWith('hydro_') ? '|HYDRO' : '|NORMAL'));
     const isSpecialType = normType !== '|NORMAL';
     const typeLabel = normType.startsWith('|') ? normType.slice(1) : normType;
+
+    // Physics sanity check (beamDeform > beamStrength)
+    const numDeform = Number(beamPropsInput.beamDeform || beam.beamDeform);
+    const rawStrength = beamPropsInput.beamStrength !== '' ? beamPropsInput.beamStrength : beam.beamStrength;
+    const numStrength = rawStrength === 'FLT_MAX' ? Infinity : Number(rawStrength);
+    const isDeformHigherThanStrength = !isNaN(numDeform) && numDeform > 0 && !isNaN(numStrength) && isFinite(numStrength) && numDeform > numStrength;
+
+    const isFLTMax = rawStrength === 'FLT_MAX' || rawStrength === '"FLT_MAX"';
+
+    const commitBeamProp = (propKey, rawVal) => {
+      if (!onUpdateBeamProperties || !inspectedBeam) return;
+      let parsed = rawVal;
+      if (propKey === 'beamStrength') {
+        if (rawVal === 'FLT_MAX' || rawVal === '"FLT_MAX"') {
+          parsed = 'FLT_MAX';
+        } else {
+          const num = Number(rawVal);
+          parsed = isNaN(num) ? rawVal : num;
+        }
+      } else if (['beamSpring', 'beamDamp', 'beamDeform', 'beamPrecompression'].includes(propKey)) {
+        const num = Number(rawVal);
+        parsed = isNaN(num) ? rawVal : num;
+      }
+      onUpdateBeamProperties(partName, beam['id1:'], beam['id2:'], { [propKey]: parsed });
+    };
+
+    const handleToggleFLTMax = () => {
+      if (isFLTMax) {
+        const newStrength = (!isNaN(numDeform) && numDeform > 0) ? Math.max(100000, numDeform * 3) : 250000;
+        setBeamPropsInput(prev => ({ ...prev, beamStrength: String(newStrength) }));
+        commitBeamProp('beamStrength', newStrength);
+      } else {
+        setBeamPropsInput(prev => ({ ...prev, beamStrength: 'FLT_MAX' }));
+        commitBeamProp('beamStrength', 'FLT_MAX');
+      }
+    };
 
     return (
       <div className="inspector-panel">
@@ -158,11 +428,25 @@ export function ElementInspector({
           </div>
           <div className="prop-row">
             <span className="prop-label">Node 1</span>
-            <span className="prop-value" style={{ color: 'var(--bng-orange-hover, #FF8533)' }}>{beam['id1:']}</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(beam['id1:'])}
+              title={`Select Node "${beam['id1:']}" in 3D Viewport & Inspector`}
+            >
+              {beam['id1:']} <span style={{ opacity: 0.6 }}>↗</span>
+            </button>
           </div>
           <div className="prop-row">
             <span className="prop-label">Node 2</span>
-            <span className="prop-value" style={{ color: 'var(--bng-orange-hover, #FF8533)' }}>{beam['id2:']}</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(beam['id2:'])}
+              title={`Select Node "${beam['id2:']}" in 3D Viewport & Inspector`}
+            >
+              {beam['id2:']} <span style={{ opacity: 0.6 }}>↗</span>
+            </button>
           </div>
           <div className="prop-row" style={{ alignItems: 'center' }}>
             <span className="prop-label">Beam Type</span>
@@ -199,30 +483,286 @@ export function ElementInspector({
         </div>
 
         {midPos && onSubdivideBeam && (
-          <button
-            onClick={() => onSubdivideBeam(partName, beam['id1:'], beam['id2:'], midPos)}
-            className="btn-primary"
-            style={{ width: '100%', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-            title="Split this beam into two equal halves by inserting an intermediate node at midpoint"
-          >
-            <SubdivideIcon size={15} />
-            <span>Subdivide Beam (Insert Midpoint Node)</span>
-          </button>
+          <div className="inspector-subdivide-panel">
+            <div className="inspector-subdivide-title-bar">
+              <div className="subdivide-title-left">
+                <SubdivideIcon size={14} className="text-accent" />
+                <span className="subdivide-heading">Subdivide Beam</span>
+              </div>
+              <span className="subdivide-cad-badge">CAD TOOL</span>
+            </div>
+
+            {/* Number of cuts / segments */}
+            <div className="subdivide-control-row">
+              <span className="subdivide-label">Number of Cuts</span>
+              <div className="subdivide-stepper-group">
+                <button
+                  type="button"
+                  className="subdivide-step-btn"
+                  disabled={subdivideCuts <= 1}
+                  onClick={() => setSubdivideCuts(c => Math.max(1, c - 1))}
+                  title="Decrease cuts"
+                >
+                  -
+                </button>
+                <span className="subdivide-cuts-val">{subdivideCuts}</span>
+                <button
+                  type="button"
+                  className="subdivide-step-btn"
+                  disabled={subdivideCuts >= 8}
+                  onClick={() => setSubdivideCuts(c => Math.min(8, c + 1))}
+                  title="Increase cuts"
+                >
+                  +
+                </button>
+                <span className="subdivide-segments-info">
+                  ({subdivideCuts + 1} segments)
+                </span>
+              </div>
+            </div>
+
+            {/* Quick cut presets */}
+            <div className="subdivide-presets-row">
+              {[1, 2, 3, 4].map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`subdivide-preset-btn ${subdivideCuts === c ? 'active' : ''}`}
+                  onClick={() => setSubdivideCuts(c)}
+                >
+                  {c === 1 ? '1 Cut (Mid)' : `${c} Cuts`}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Node Name / Prefix */}
+            <div className="subdivide-control-row">
+              <span className="subdivide-label">{subdivideCuts === 1 ? 'Node Name' : 'Node Prefix'}</span>
+              <input
+                type="text"
+                className="subdivide-name-input"
+                value={customSubdivideNodeName}
+                onChange={(e) => setCustomSubdivideNodeName(e.target.value)}
+                placeholder={subdivideCuts === 1 ? `${beam['id1:']}_mid` : 'auto (#)'}
+                title="Custom name for intermediate node(s). Leave blank for auto-numbering."
+              />
+            </div>
+
+            {/* Live Geometry Preview */}
+            <div className="subdivide-preview-box">
+              <div className="subdivide-preview-row">
+                <span>Segment Length:</span>
+                <b style={{ color: '#00e676' }}>
+                  {lengthMeters !== null ? `${(lengthMeters / (subdivideCuts + 1)).toFixed(4)} m` : '—'}
+                </b>
+              </div>
+              {subdivideCuts === 1 && midPos && (
+                <div className="subdivide-preview-row">
+                  <span>Midpoint:</span>
+                  <span className="subdivide-coords-mono">
+                    [{midPos.map(v => v.toFixed(3)).join(', ')}]
+                  </span>
+                </div>
+              )}
+              {symmetryEnabled && (
+                <div className="subdivide-preview-row" style={{ color: '#38bdf8' }}>
+                  <span>X-Mirror:</span>
+                  <span>Active (mirrored on opposite side)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Action Execution Button */}
+            <button
+              type="button"
+              className="btn-subdivide-execute"
+              onClick={() => {
+                onSubdivideBeam({
+                  partName,
+                  id1: beam['id1:'],
+                  id2: beam['id2:'],
+                  splitPos: midPos,
+                  customNodeId: customSubdivideNodeName.trim() || null,
+                  cuts: subdivideCuts
+                });
+              }}
+              title={`Split this beam into ${subdivideCuts + 1} equal segments by inserting ${subdivideCuts} intermediate node(s)`}
+            >
+              <SubdivideIcon size={14} />
+              <span>
+                Subdivide into {subdivideCuts + 1} Segments
+              </span>
+            </button>
+          </div>
         )}
 
+        {/* Quick Physics Presets Bar */}
+        <div className="inspector-presets-bar">
+          <div className="inspector-presets-header">Quick Physics Presets</div>
+          <div className="inspector-presets-grid">
+            {BEAM_PRESETS.map(p => (
+              <button
+                key={p.name}
+                type="button"
+                className="preset-chip-btn"
+                onClick={() => {
+                  if (onUpdateBeamProperties) {
+                    onUpdateBeamProperties(partName, beam['id1:'], beam['id2:'], p.properties);
+                  }
+                  if (p.beamType && onChangeBeamType) {
+                    onChangeBeamType(partName, beam['id1:'], beam['id2:'], p.beamType);
+                  }
+                }}
+                title={p.tooltip}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Physics Warning Box */}
+        {isDeformHigherThanStrength && (
+          <div className="inspector-warning-box">
+            <span className="warning-icon"><WarningIcon size={14} className="text-warning" /></span>
+            <div>
+              <strong>Physics Issue:</strong> <code>beamDeform</code> ({formatNtoMetric(numDeform, 'N')}) &gt; <code>beamStrength</code> ({formatNtoMetric(numStrength, 'N')}). Beam will snap before deforming. Set <code>beamStrength</code> to FLT_MAX or increase its value.
+            </div>
+          </div>
+        )}
+
+        {/* Interactive Physical Properties */}
         <div className="inspector-section">
           <div className="inspector-section-title">Physical Properties</div>
-          {otherBeamProps.map(k => (
-            <div key={k} className="prop-row">
-              <span className="prop-label">{k}</span>
-              <span className="prop-value">{String(beam[k])}</span>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Spring stiffness in Newtons per meter">beamSpring</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(beamPropsInput.beamSpring)}
+                className="inspector-prop-input"
+                value={beamPropsInput.beamSpring}
+                placeholder="1501000"
+                onChange={(e) => setBeamPropsInput(prev => ({ ...prev, beamSpring: e.target.value }))}
+                onBlur={() => commitBeamProp('beamSpring', beamPropsInput.beamSpring)}
+                onKeyDown={(e) => e.key === 'Enter' && commitBeamProp('beamSpring', beamPropsInput.beamSpring)}
+                title="Spring stiffness in N/m (e.g. 1500000 = 1.5 MN/m)"
+              />
+              <span className="prop-unit-hint">{formatNtoMetric(beamPropsInput.beamSpring, 'N/m')}</span>
             </div>
-          ))}
+          </div>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Oscillation damping in N·s/m">beamDamp</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(beamPropsInput.beamDamp)}
+                className="inspector-prop-input"
+                value={beamPropsInput.beamDamp}
+                placeholder="120"
+                onChange={(e) => setBeamPropsInput(prev => ({ ...prev, beamDamp: e.target.value }))}
+                onBlur={() => commitBeamProp('beamDamp', beamPropsInput.beamDamp)}
+                onKeyDown={(e) => e.key === 'Enter' && commitBeamProp('beamDamp', beamPropsInput.beamDamp)}
+                title="Oscillation damping in N·s/m"
+              />
+              <span className="prop-unit-hint">N·s/m</span>
+            </div>
+          </div>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Plastic deformation threshold in Newtons">beamDeform</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(beamPropsInput.beamDeform)}
+                className="inspector-prop-input"
+                value={beamPropsInput.beamDeform}
+                placeholder="35000"
+                onChange={(e) => setBeamPropsInput(prev => ({ ...prev, beamDeform: e.target.value }))}
+                onBlur={() => commitBeamProp('beamDeform', beamPropsInput.beamDeform)}
+                onKeyDown={(e) => e.key === 'Enter' && commitBeamProp('beamDeform', beamPropsInput.beamDeform)}
+                title="Deformation threshold in Newtons"
+              />
+              <span className="prop-unit-hint">{formatNtoMetric(beamPropsInput.beamDeform, 'N')}</span>
+            </div>
+          </div>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Failure / snap threshold">beamStrength</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isFLTMax ? (
+                <button
+                  type="button"
+                  className="fltmax-toggle-btn active"
+                  onClick={handleToggleFLTMax}
+                  title="Beam is unbreakable (FLT_MAX). Click to make breakable."
+                >
+                  <CheckIcon size={12} className="inline-icon" /> FLT_MAX (Unbreakable)
+                </button>
+              ) : (
+                <>
+                  <input
+                    type={getInputTypeForProp(beamPropsInput.beamStrength)}
+                    className="inspector-prop-input"
+                    value={beamPropsInput.beamStrength}
+                    placeholder="250000"
+                    onChange={(e) => setBeamPropsInput(prev => ({ ...prev, beamStrength: e.target.value }))}
+                    onBlur={() => commitBeamProp('beamStrength', beamPropsInput.beamStrength)}
+                    onKeyDown={(e) => e.key === 'Enter' && commitBeamProp('beamStrength', beamPropsInput.beamStrength)}
+                    title="Snap strength in Newtons"
+                  />
+                  <button
+                    type="button"
+                    className="fltmax-toggle-btn"
+                    onClick={handleToggleFLTMax}
+                    title="Set beam to unbreakable (FLT_MAX)"
+                  >
+                    FLT_MAX
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Initial pre-tension / expansion factor (1.0 = neutral)">precompression</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(beamPropsInput.beamPrecompression)}
+                step="0.01"
+                className="inspector-prop-input"
+                value={beamPropsInput.beamPrecompression}
+                placeholder="1.0"
+                onChange={(e) => setBeamPropsInput(prev => ({ ...prev, beamPrecompression: e.target.value }))}
+                onBlur={() => commitBeamProp('beamPrecompression', beamPropsInput.beamPrecompression)}
+                onKeyDown={(e) => e.key === 'Enter' && commitBeamProp('beamPrecompression', beamPropsInput.beamPrecompression)}
+                title="Beam precompression (1.0 = neutral, <1.0 = contracted, >1.0 = expanded)"
+              />
+              <span className="prop-unit-hint">factor</span>
+            </div>
+          </div>
+
+          {/* Other Attributes */}
+          {otherBeamProps.length > 0 && (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+              <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Other Attributes</div>
+              {otherBeamProps.map(k => (
+                <div key={k} className="prop-row">
+                  <span className="prop-label">{k}</span>
+                  <span className="prop-value">{String(beam[k])}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {beam.__meta?.range && (
           <button
-            onClick={() => onJumpToCode && onJumpToCode(beam.__meta.range[0] + 1)}
+            onClick={() => onJumpToCode && onJumpToCode(beam.__meta.range[0] + 1, {
+              partName: inspectedPartName,
+              filePath: inspectedBeam?.__filePath || inspectedBeam?.filePath || jbeamParts?.[inspectedPartName]?.__filePath,
+              id: inspectedBeamKey,
+              type: 'beam'
+            })}
             className="btn-secondary"
             style={{ width: '100%', marginTop: 8 }}
           >
@@ -265,13 +805,12 @@ export function ElementInspector({
       <div className="prop-row">
         <span className="prop-label">Node Index</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input
-            type="number"
-            min="1"
-            className="inspector-mini-input"
-            style={{ width: 60 }}
+          <NumberStepper
+            min={1}
             value={batchRenameIndex}
-            onChange={(e) => onUpdateBatchRenameIndex && onUpdateBatchRenameIndex(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            onChange={(val) => onUpdateBatchRenameIndex && onUpdateBatchRenameIndex(val)}
+            width={64}
+            title="Next sequential index number"
           />
           {onResetBatchRenameIndex && (
             <button
@@ -296,28 +835,134 @@ export function ElementInspector({
     </div>
   );
 
-  // 2. NODE INSPECTOR
+  // 2. MULTI-NODE INSPECTOR (When 2 or more nodes are selected via Box Drag or Shift-Click)
+  if (multiSelectedNodes && multiSelectedNodes.length > 1) {
+    const selectedNodesList = [];
+    let sumMass = 0;
+    let avgX = 0, avgY = 0, avgZ = 0;
+
+    for (const nid of multiSelectedNodes) {
+      let nObj = null;
+      let pName = null;
+      if (jbeamParts) {
+        for (const pKey of Object.keys(jbeamParts).filter(k => k !== '__meta')) {
+          const p = jbeamParts[pKey];
+          if (p?.nodes) {
+            if (p.nodes[nid]) { nObj = p.nodes[nid]; pName = pKey; break; }
+            if (p.nodes[`${pKey}_${nid}`]) { nObj = p.nodes[`${pKey}_${nid}`]; pName = pKey; break; }
+            for (const [nk, nd] of Object.entries(p.nodes)) {
+              if (nk === nid || nk === nid.replace(`${pKey}_`, '')) { nObj = nd; pName = pKey; break; }
+            }
+            if (nObj) break;
+          }
+        }
+      }
+      const [nx, ny, nz] = nObj ? [
+        nObj.posX ?? nObj.pos?.[0] ?? nObj.rx ?? 0,
+        nObj.posY ?? nObj.pos?.[1] ?? nObj.ry ?? 0,
+        nObj.posZ ?? nObj.pos?.[2] ?? nObj.rz ?? 0
+      ] : [0, 0, 0];
+      const mass = Number(nObj?.nodeWeight) || 5.0;
+      sumMass += mass;
+      avgX += nx; avgY += ny; avgZ += nz;
+      selectedNodesList.push({ id: nid, partName: pName, node: nObj, coords: [nx, ny, nz] });
+    }
+    const count = multiSelectedNodes.length;
+    avgX = (avgX / count).toFixed(4);
+    avgY = (avgY / count).toFixed(4);
+    avgZ = (avgZ / count).toFixed(4);
+
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-header">
+          <span className="badge badge-node">MULTI-NODES</span>
+          <span className="inspector-title">{count} Nodes Selected</span>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Selected Nodes ({count})</div>
+          <div className="multi-node-chips-grid">
+            {selectedNodesList.map(item => (
+              <div
+                key={item.id}
+                className="multi-node-chip"
+                onClick={() => onSelectNode && onSelectNode(item.id)}
+                title={`Click to inspect node "${item.id}" alone`}
+              >
+                <span className="chip-name">{item.id}</span>
+                {onMultiSelectChange && (
+                  <button
+                    className="chip-remove-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMultiSelectChange(multiSelectedNodes.filter(x => x !== item.id));
+                    }}
+                    title="Remove from selection"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Selection Center & Mass</div>
+          <div className="prop-row">
+            <span className="prop-label">Average Center</span>
+            <span className="prop-value" style={{ fontFamily: 'monospace' }}>
+              [{avgX}, {avgY}, {avgZ}]
+            </span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Total Mass</span>
+            <span className="prop-value" style={{ color: '#00e676', fontWeight: 600 }}>
+              {sumMass.toFixed(2)} kg
+            </span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Node Count</span>
+            <span className="prop-value">{count}</span>
+          </div>
+        </div>
+
+        <div className="inspector-hint">
+          Hold Shift and click in 3D to add/remove nodes, or drag a selection box (Shift+Drag).
+        </div>
+      </div>
+    );
+  }
+
+  // 3. SINGLE NODE INSPECTOR
   if (foundNode) {
-    const mirrorId = symmetryEnabled ? getSymmetricNodeId(selectedNodeId) : null;
+    const mirrorId = symmetryEnabled ? getSymmetricNodeId(effectiveNodeId) : null;
     const otherProps = Object.keys(foundNode).filter(
       k => !['__meta', 'id', 'name', 'posX', 'posY', 'posZ', 'pos'].includes(k)
     );
 
+    const commitNodeProp = (propKey, rawVal) => {
+      if (!onUpdateNodeProperties || !foundNode) return;
+      const num = Number(rawVal);
+      const parsed = isNaN(num) ? rawVal : num;
+      onUpdateNodeProperties(foundPartName, effectiveNodeId, { [propKey]: parsed });
+    };
+
     const handleStartRename = () => {
-      setNameInput(selectedNodeId);
+      setNameInput(effectiveNodeId);
       setIsEditingName(true);
     };
 
     const handleConfirmRename = () => {
       const trimmed = nameInput.trim();
-      if (trimmed && trimmed !== selectedNodeId && onRenameNode) {
-        onRenameNode(foundPartName, selectedNodeId, trimmed, { symmetry: symmetryEnabled });
+      if (trimmed && trimmed !== effectiveNodeId && onRenameNode) {
+        onRenameNode(foundPartName, effectiveNodeId, trimmed, { symmetry: symmetryEnabled });
       }
       setIsEditingName(false);
     };
 
     const handleCancelRename = () => {
-      setNameInput(selectedNodeId);
+      setNameInput(effectiveNodeId);
       setIsEditingName(false);
     };
 
@@ -356,7 +1001,7 @@ export function ElementInspector({
             </div>
           ) : (
             <div className="inspector-title-row">
-              <span className="inspector-title">{selectedNodeId}</span>
+              <span className="inspector-title">{effectiveNodeId}</span>
               <button
                 onClick={handleStartRename}
                 className="rename-trigger-btn"
@@ -431,8 +1076,8 @@ export function ElementInspector({
 
         {/* Flexbody Association & 3D Mesh Driver Link */}
         {(() => {
-          const nodeGroups = flexbodyAssociations.nodeToGroups[selectedNodeId] || [];
-          const drivingFlexbodies = flexbodyAssociations.getFlexbodiesForNode(selectedNodeId);
+          const nodeGroups = flexbodyAssociations.nodeToGroups[effectiveNodeId] || [];
+          const drivingFlexbodies = flexbodyAssociations.getFlexbodiesForNode(effectiveNodeId);
           return (
             <div className="inspector-section">
               <div className="inspector-section-title">Flexbody Association</div>
@@ -441,8 +1086,8 @@ export function ElementInspector({
                 <span className="prop-value">
                   {nodeGroups.length > 0 ? (
                     <span className="node-group-badge-list">
-                      {nodeGroups.map(g => (
-                        <span key={g} className="badge-group-pill">{g}</span>
+                      {nodeGroups.map((g, idx) => (
+                        <span key={`${g}_${idx}`} className="badge-group-pill">{g}</span>
                       ))}
                     </span>
                   ) : (
@@ -458,9 +1103,9 @@ export function ElementInspector({
                     Deforms Visual 3D Mesh ({drivingFlexbodies.length}):
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {drivingFlexbodies.map(fb => (
+                    {drivingFlexbodies.map((fb, idx) => (
                       <button
-                        key={fb.meshName}
+                        key={`${fb.meshName}_${idx}`}
                         onClick={() => onHighlightSubmesh && onHighlightSubmesh(fb.meshName)}
                         className={`btn-submesh-link ${highlightedSubmesh === fb.meshName ? 'active-highlight' : ''}`}
                         title={`Click to highlight "${fb.meshName}" (${fb.nodeCount} driver nodes) in 3D Viewport`}
@@ -477,21 +1122,146 @@ export function ElementInspector({
           );
         })()}
 
-        {otherProps.length > 0 && (
-          <div className="inspector-section">
-            <div className="inspector-section-title">Properties</div>
-            {otherProps.map(k => (
-              <div key={k} className="prop-row">
-                <span className="prop-label">{k}</span>
-                <span className="prop-value">{String(foundNode[k])}</span>
-              </div>
-            ))}
+        {/* Physical Properties (nodeWeight, nodeMaterial, frictionCoef) */}
+        <div className="inspector-section">
+          <div className="inspector-section-title">Physical Properties</div>
+
+          {/* Node Physics Sanity Warnings */}
+          {(() => {
+            const numW = Number(nodePropsInput.nodeWeight || foundNode.nodeWeight);
+            if (!isNaN(numW) && numW < 0.2 && numW > 0) {
+              return (
+                <div className="inspector-warning-box">
+                  <span className="warning-icon"><WarningIcon size={14} className="text-warning" /></span>
+                  <div>
+                    <strong>Physics Instability:</strong> <code>nodeWeight</code> ({numW} kg) is unusually low (&lt;0.2 kg). High beam stiffness may cause mesh exploding or simulation spiking.
+                  </div>
+                </div>
+              );
+            }
+            if (!isNaN(numW) && numW > 500) {
+              return (
+                <div className="inspector-warning-box">
+                  <span className="warning-icon"><WarningIcon size={14} className="text-warning" /></span>
+                  <div>
+                    <strong>High Node Mass:</strong> <code>nodeWeight</code> ({numW} kg) is very heavy (&gt;500 kg). Ensure attached beams have sufficient stiffness.
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          <div className="prop-row">
+            <span className="prop-label" title="Physical weight of node in kilograms">nodeWeight</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(nodePropsInput.nodeWeight)}
+                step="0.1"
+                className="inspector-prop-input"
+                value={nodePropsInput.nodeWeight}
+                placeholder="4.5"
+                onChange={(e) => setNodePropsInput(prev => ({ ...prev, nodeWeight: e.target.value }))}
+                onBlur={() => commitNodeProp('nodeWeight', nodePropsInput.nodeWeight)}
+                onKeyDown={(e) => e.key === 'Enter' && commitNodeProp('nodeWeight', nodePropsInput.nodeWeight)}
+                title="Node mass in kilograms"
+              />
+              <span className="prop-unit-hint">kg</span>
+            </div>
           </div>
-        )}
+
+          <div className="prop-row" style={{ alignItems: 'center' }}>
+            <span className="prop-label" title="Surface collision & friction material">nodeMaterial</span>
+            <CustomSelect
+              value={foundNode.nodeMaterial || '|NM_METAL'}
+              options={[
+                { value: '|NM_METAL', label: '|NM_METAL (Steel/Sheet metal)' },
+                { value: '|NM_PLASTIC', label: '|NM_PLASTIC (Polymer/Bumper)' },
+                { value: '|NM_RUBBER', label: '|NM_RUBBER (Rubber/Bushing)' },
+                { value: '|NM_GLASS', label: '|NM_GLASS (Glass pane)' },
+                { value: '|NM_ALUMINUM', label: '|NM_ALUMINUM (Alloy/Lightweight)' }
+              ]}
+              onChange={(mat) => onUpdateNodeProperties && onUpdateNodeProperties(foundPartName, effectiveNodeId, { nodeMaterial: mat })}
+              compact={true}
+              searchable={false}
+              className="inspector-custom-select"
+              title="Change Node Collision Material"
+            />
+          </div>
+
+          <div className="prop-row">
+            <span className="prop-label" title="Surface ground/tire friction coefficient (default 0.5)">frictionCoef</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type={getInputTypeForProp(nodePropsInput.frictionCoef)}
+                step="0.05"
+                min="0"
+                max="3"
+                className="inspector-prop-input"
+                value={nodePropsInput.frictionCoef}
+                placeholder="0.5"
+                onChange={(e) => setNodePropsInput(prev => ({ ...prev, frictionCoef: e.target.value }))}
+                onBlur={() => commitNodeProp('frictionCoef', nodePropsInput.frictionCoef)}
+                onKeyDown={(e) => e.key === 'Enter' && commitNodeProp('frictionCoef', nodePropsInput.frictionCoef)}
+                title="Friction coefficient (0.0 = ice, 0.5 = normal, 1.0+ = sticky)"
+              />
+              <span className="prop-unit-hint">coef</span>
+            </div>
+          </div>
+
+          {/* Other Attributes */}
+          {otherProps.filter(k => !['nodeWeight', 'nodeMaterial', 'frictionCoef'].includes(k)).length > 0 && (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6 }}>
+              <div style={{ fontSize: 9.5, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Other Attributes</div>
+              {otherProps.filter(k => !['nodeWeight', 'nodeMaterial', 'frictionCoef'].includes(k)).map(k => (
+                <div key={k} className="prop-row">
+                  <span className="prop-label">{k}</span>
+                  <span className="prop-value">{String(foundNode[k])}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Connected Beams Graph Navigation Section */}
+        <div className="inspector-section">
+          <div className="inspector-section-title">
+            Connected Beams ({connectedBeams.length})
+          </div>
+          {connectedBeams.length === 0 ? (
+            <div className="text-muted" style={{ fontSize: 11, fontStyle: 'italic', padding: '4px 0' }}>
+              No connected beams found
+            </div>
+          ) : (
+            <div className="connected-beams-container">
+              {connectedBeams.map((cb, idx) => (
+                <button
+                  key={`${cb.partName}_${cb.beamKey || idx}`}
+                  type="button"
+                  className="connected-beam-chip"
+                  onClick={() => onSelectBeam && onSelectBeam(cb.partName, cb.beamKey, cb.beam)}
+                  title={`Click to select beam "${effectiveNodeId} ↔ ${cb.otherNodeId}" in 3D Viewport & Inspector`}
+                >
+                  <span className="beam-chip-nodes">↔ <strong>{cb.otherNodeId}</strong></span>
+                  {cb.beamType && cb.beamType !== '|NORMAL' && (
+                    <span className={`beam-chip-tag beam-chip-${cb.beamType.replace('|', '').toLowerCase()}`}>
+                      {cb.beamType.replace('|', '')}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {foundNode.__meta?.range && (
           <button
-            onClick={() => onJumpToCode && onJumpToCode(foundNode.__meta.range[0] + 1)}
+            onClick={() => onJumpToCode && onJumpToCode(foundNode.__meta.range[0] + 1, {
+              partName: foundPartName,
+              filePath: foundNode?.__filePath || foundNode?.filePath || jbeamParts?.[foundPartName]?.__filePath,
+              id: effectiveNodeId,
+              type: 'node'
+            })}
             className="btn-secondary"
             style={{ width: '100%', marginTop: 8 }}
           >
@@ -510,6 +1280,11 @@ export function ElementInspector({
     const nodes = selectedSurfaceInfo.nodes || [selectedSurfaceInfo.id1, selectedSurfaceInfo.id2, selectedSurfaceInfo.id3, selectedSurfaceInfo.id4].filter(Boolean);
     const normal = selectedSurfaceInfo.normal || [0, 1, 0];
     const area = selectedSurfaceInfo.area || 0;
+    const surfaceType = String(selectedSurfaceInfo.triangleType || selectedSurfaceInfo.quadType || 'NORMALTYPE').toUpperCase();
+    const dragCoef = selectedSurfaceInfo.dragCoef;
+    const liftCoef = selectedSurfaceInfo.liftCoef;
+    const groundModel = selectedSurfaceInfo.groundModel;
+    const pressureGroup = selectedSurfaceInfo.pressureGroup;
 
     return (
       <div className="inspector-panel">
@@ -547,6 +1322,66 @@ export function ElementInspector({
         </div>
 
         <div className="inspector-section">
+          <div className="inspector-section-title">Physics & Aerodynamics Classification</div>
+          <div className="prop-row">
+            <span className="prop-label">Surface Type</span>
+            <span className="prop-value" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {surfaceType === 'NONCOLLIDABLE' && (
+                <span className="type-badge aero" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>
+                  NONCOLLIDABLE (Aero Only)
+                </span>
+              )}
+              {surfaceType === 'PRESSURE' && (
+                <span className="type-badge pressure" style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>
+                  PRESSURE (Pneumatic)
+                </span>
+              )}
+              {surfaceType !== 'NONCOLLIDABLE' && surfaceType !== 'PRESSURE' && (
+                <span className="type-badge normal" style={{ background: 'rgba(37, 99, 235, 0.2)', color: '#60a5fa', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>
+                  NORMALTYPE (Collidable Hull)
+                </span>
+              )}
+            </span>
+          </div>
+
+          {dragCoef !== null && dragCoef !== undefined && (
+            <div className="prop-row">
+              <span className="prop-label" title="Aerodynamic Drag Coefficient">dragCoef</span>
+              <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#f59e0b', fontWeight: 600 }}>
+                {dragCoef}
+              </span>
+            </div>
+          )}
+
+          {liftCoef !== null && liftCoef !== undefined && (
+            <div className="prop-row">
+              <span className="prop-label" title="Aerodynamic Lift Coefficient">liftCoef</span>
+              <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#00e5ff', fontWeight: 600 }}>
+                {liftCoef}
+              </span>
+            </div>
+          )}
+
+          {groundModel && (
+            <div className="prop-row">
+              <span className="prop-label" title="Ground Contact Material Override">groundModel</span>
+              <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#e2e8f0' }}>
+                {groundModel}
+              </span>
+            </div>
+          )}
+
+          {pressureGroup && (
+            <div className="prop-row">
+              <span className="prop-label" title="Pressurized Chamber Group">pressureGroup</span>
+              <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#fbbf24' }}>
+                {pressureGroup}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="inspector-section">
           <div className="inspector-section-title">Face Orientation & Winding Order</div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.4 }}>
             Winding order controls aerodynamic lift/drag and physical collision normals in BeamNG.
@@ -565,7 +1400,11 @@ export function ElementInspector({
 
         {selectedSurfaceInfo.range && (
           <button
-            onClick={() => onJumpToCode && onJumpToCode(selectedSurfaceInfo.range[0] + 1)}
+            onClick={() => onJumpToCode && onJumpToCode(selectedSurfaceInfo.range[0] + 1, {
+              partName: selectedSurfaceInfo.partName,
+              filePath: selectedSurfaceInfo.filePath || jbeamParts?.[selectedSurfaceInfo.partName]?.__filePath,
+              type: 'surface'
+            })}
             className="btn-secondary"
             style={{ width: '100%', marginTop: 8 }}
           >
@@ -754,7 +1593,11 @@ export function ElementInspector({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onJumpToCode && onJumpToCode(fb.range[0] + 1);
+                            onJumpToCode && onJumpToCode(fb.range[0] + 1, {
+                              partName: fb.partName,
+                              filePath: jbeamParts?.[fb.partName]?.__filePath,
+                              type: 'flexbody'
+                            });
                           }}
                           className="jump-link"
                           title="Jump to flexbody row in source code"

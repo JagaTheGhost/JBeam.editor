@@ -24,6 +24,19 @@ try {
   app.setName('JBeam.editor');
 } catch (e) {}
 
+// Hardware GPU Acceleration & Discrete GPU Priority for CAD / 3D Performance
+try {
+  app.commandLine.appendSwitch('gpu-preference', '2');
+  app.commandLine.appendSwitch('force_high_performance_gpu');
+  app.commandLine.appendSwitch('force-high-performance-gpu');
+  app.commandLine.appendSwitch('force-discrete-gpu');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-zero-copy');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+} catch (e) {
+  console.warn('[JBeam Studio] Failed to set GPU command-line switches:', e);
+}
+
 let mainWindow = null;
 const isDev = !app.isPackaged || process.env.NODE_ENV === 'development';
 if (isDev) {
@@ -281,7 +294,7 @@ function createWindow() {
     minHeight: 640,
     title: 'JBeam.editor',
     icon: mainIcon,
-    backgroundColor: '#18181c',
+    backgroundColor: '#1e2127',
     frame: false,
     titleBarStyle: 'hidden',
     autoHideMenuBar: true,
@@ -330,7 +343,7 @@ function createWindow() {
           height: 850,
           minWidth: 500,
           minHeight: 400,
-          backgroundColor: '#18181c',
+          backgroundColor: '#1e2127',
           frame: false,
           titleBarStyle: 'hidden',
           autoHideMenuBar: true,
@@ -389,6 +402,20 @@ function createWindow() {
               mainWindow.webContents.send('detached-viewport-closed');
             }
           } catch (e) {}
+        });
+
+        // Enable F12 and F5 inside detached window
+        childWindow.webContents.on('before-input-event', (event, input) => {
+          if (input.type === 'keyDown') {
+            if (!app.isPackaged && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) {
+              childWindow.webContents.toggleDevTools();
+              event.preventDefault();
+            }
+            if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) {
+              childWindow.reload();
+              event.preventDefault();
+            }
+          }
         });
       } else {
         // Documentation / External Windows

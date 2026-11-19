@@ -116,6 +116,28 @@ export function runCreationToolsTests() {
   assert.ok(step6.updatedText.includes('["mount_r", "mount_mid"]'), 'First split segment added');
   assert.ok(step6.updatedText.includes('["mount_mid", "mount_l"]'), 'Second split segment added');
 
+  // 6b. Subdivide beam with multiple cuts (e.g. 2 cuts -> 3 segments)
+  const step6b = subdivideBeamLossless(
+    baseJBeam,
+    'suspension_arm',
+    {
+      id1: 'mount_r',
+      id2: 'mount_l',
+      newNodes: [
+        { id: 'mount_cut_1', pos: [0.1167, 1.20, 0.40] },
+        { id: 'mount_cut_2', pos: [-0.1167, 1.20, 0.40] }
+      ]
+    },
+    false
+  );
+  assert.strictEqual(step6b.error, null);
+  assert.ok(!step6b.updatedText.includes('["mount_r", "mount_l"]'), 'Original beam removed');
+  assert.ok(step6b.updatedText.includes('["mount_cut_1", 0.1167, 1.2, 0.4]'), 'First cut node inserted');
+  assert.ok(step6b.updatedText.includes('["mount_cut_2", -0.1167, 1.2, 0.4]'), 'Second cut node inserted');
+  assert.ok(step6b.updatedText.includes('["mount_r", "mount_cut_1"]'), 'First chained segment added');
+  assert.ok(step6b.updatedText.includes('["mount_cut_1", "mount_cut_2"]'), 'Second chained segment added');
+  assert.ok(step6b.updatedText.includes('["mount_cut_2", "mount_l"]'), 'Third chained segment added');
+
   // 7. Place new node and move it: verify coordinate update does not reset
   const placeRes = addNodeLossless(
     baseJBeam,

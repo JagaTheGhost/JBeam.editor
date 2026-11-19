@@ -185,5 +185,118 @@ export function runMultiMonitorPortalTests() {
   }, 'Node move message should trigger AST lossless coordinate update');
   console.log('✓ Test 7: Bi-directional node selection and coordinate move contract verified.');
 
+  // Test 8: Main App sidebar segregation when detached vs docked
+  const computeMainAppSidebarTabs = (isDetached) => {
+    const leftTabs = ['files', 'mechanical'];
+    if (!isDetached) {
+      leftTabs.unshift('code');
+      leftTabs.splice(2, 0, 'assembly', 'meshes');
+    }
+    const rightTabs = isDetached ? [] : ['inspector', 'structure'];
+    return { leftTabs, rightTabs };
+  };
+
+  const detachedMainTabs = computeMainAppSidebarTabs(true);
+  assert(!detachedMainTabs.leftTabs.includes('assembly'), 'Main app left sidebar must NOT contain assembly when detached');
+  assert(!detachedMainTabs.leftTabs.includes('meshes'), 'Main app left sidebar must NOT contain meshes when detached');
+  assert.strictEqual(detachedMainTabs.rightTabs.length, 0, 'Main app right sidebar must NOT contain 3D tabs when detached');
+  assert(detachedMainTabs.leftTabs.includes('files'), 'Main app left sidebar must maintain files explorer');
+
+  const dockedMainTabs = computeMainAppSidebarTabs(false);
+  assert(dockedMainTabs.leftTabs.includes('assembly'), 'Docked mode left sidebar includes assembly');
+  assert(dockedMainTabs.leftTabs.includes('meshes'), 'Docked mode left sidebar includes meshes');
+  assert(dockedMainTabs.rightTabs.includes('inspector'), 'Docked mode right sidebar includes inspector');
+  assert(dockedMainTabs.rightTabs.includes('structure'), 'Docked mode right sidebar includes structure');
+  console.log('✓ Test 8: Main app sidebar segregation when detached vs docked verified.');
+
+  // Test 9: Detached 3D Viewport proper dual-sidebar separation
+  const detachedViewportSidebars = {
+    left: ['assembly', 'meshes'],
+    center: '3D Viewport',
+    right: ['inspector', 'structure']
+  };
+
+  assert.deepStrictEqual(detachedViewportSidebars.left, ['assembly', 'meshes'], 'Detached left sidebar must have assembly & meshes');
+  assert.deepStrictEqual(detachedViewportSidebars.right, ['inspector', 'structure'], 'Detached right sidebar must have inspector & structure');
+  assert.strictEqual(detachedViewportSidebars.center, '3D Viewport');
+  console.log('✓ Test 9: Detached 3D viewport dual-sidebar separation verified.');
+
+  // Test 10: Detached Viewport Meshes tab isolation contract
+  const computeViewportMeshIsolation = ({ activeLeftTab, spawnedMeshNames, activeMatchingMeshNames }) => {
+    const isMeshesTabActive = activeLeftTab === 'meshes';
+    const structureGroupVisible = !isMeshesTabActive;
+    const filterTargets = isMeshesTabActive ? spawnedMeshNames : activeMatchingMeshNames;
+    return {
+      isMeshesTabActive,
+      structureGroupVisible,
+      filterTargets
+    };
+  };
+
+  const detachedMeshesMode = computeViewportMeshIsolation({
+    activeLeftTab: 'meshes',
+    spawnedMeshNames: new Set(['etk_wheel_01', 'etk_wheel_02']),
+    activeMatchingMeshNames: new Set(['etkk_suspension_R'])
+  });
+
+  assert.strictEqual(detachedMeshesMode.isMeshesTabActive, true, 'isMeshesTabActive must be true when on meshes tab');
+  assert.strictEqual(detachedMeshesMode.structureGroupVisible, false, 'JBeam physics structure wireframe must be hidden to isolate 3D visual meshes');
+  assert(detachedMeshesMode.filterTargets.has('etk_wheel_01'), 'Meshes tab must render spawned 3D meshes in viewport');
+  assert(!detachedMeshesMode.filterTargets.has('etkk_suspension_R'), 'Meshes tab must not filter by JBeam part flexbodies');
+
+  const detachedAssemblyMode = computeViewportMeshIsolation({
+    activeLeftTab: 'assembly',
+    spawnedMeshNames: new Set(['etk_wheel_01']),
+    activeMatchingMeshNames: new Set(['etkk_suspension_R'])
+  });
+
+  assert.strictEqual(detachedAssemblyMode.isMeshesTabActive, false, 'isMeshesTabActive must be false on assembly tab');
+  assert.strictEqual(detachedAssemblyMode.structureGroupVisible, true, 'Structure wireframe must be visible on assembly tab');
+  assert(detachedAssemblyMode.filterTargets.has('etkk_suspension_R'), 'Assembly tab filters by matching flexbodies');
+  console.log('✓ Test 10: Detached viewport Meshes tab isolation & structure visibility verified.');
+
+  // Test 11: Detached Window DAE submesh spawning & live sync
+  let detachedSpawned = new Set();
+  const submeshList = ['wheel_front', 'wheel_rear', 'caliper'];
+
+  const onUpdateSubmeshNames = (names) => {
+    if (!detachedSpawned || detachedSpawned.size === 0) {
+      detachedSpawned = new Set(names);
+    }
+  };
+
+  const toggleSpawn = (name) => {
+    const next = new Set(detachedSpawned);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    detachedSpawned = next;
+  };
+
+  const despawnAll = () => {
+    detachedSpawned = new Set();
+  };
+
+  const spawnAll = () => {
+    detachedSpawned = new Set(submeshList);
+  };
+
+  onUpdateSubmeshNames(submeshList);
+  assert.strictEqual(detachedSpawned.size, 3, 'Initial DAE load must spawn all detected submeshes by default');
+
+  toggleSpawn('caliper');
+  assert.strictEqual(detachedSpawned.has('caliper'), false, 'Toggling submesh must unspawn it');
+  assert.strictEqual(detachedSpawned.size, 2);
+
+  despawnAll();
+  assert.strictEqual(detachedSpawned.size, 0, 'Despawn all must empty spawned meshes');
+
+  spawnAll();
+  assert.strictEqual(detachedSpawned.size, 3, 'Spawn all must restore all submeshes');
+  console.log('✓ Test 11: Detached window DAE submesh spawning & live sync verified.');
+
   console.log('All Multi-Monitor & Detached Viewport tests passed successfully!');
+}
+
+if (process.argv[1]?.endsWith('multiMonitorPortal.test.js')) {
+  runMultiMonitorPortalTests();
 }

@@ -169,6 +169,7 @@ export function parsePowertrainGraph(jbeamParts) {
             inputIndex: devIndex,
             inlineOptions: inlineOptions || {},
             partName,
+            filePath: part.__filePath || part.filePath || null,
             children: []
           });
         }

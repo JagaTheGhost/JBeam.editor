@@ -25,11 +25,14 @@ JBeam.editor is a dedicated desktop application engineered for BeamNG.drive modd
   - Renders **Beams** color-coded by official BeamNG type (`NORMAL`, `HYDRO`, `SUPPORT`, `BOUNDED`, `ANISOTROPIC`, `LBEAM`).
   - Renders **Triangles & Quads** as translucent aerodynamic and collision surfaces.
   - **Blender-Style Orientation Gizmo**: Interactive 3D coordinate cube in the top-right corner to snap into Front, Rear, Left, Right, Top, or Bottom orthographic views.
+  - **Connected Topology Focus (Neighborhood X-Ray) `[EXPERIMENTAL]`**: Isolate directly connected beams and adjacent neighbor nodes with <kbd>Alt + F</kbd>, automatically dimming background geometry and decluttering labels.
+  - **Viewport Background Themes**: Switch between *Editor Gray* (`#1e2127`), *Theme Charcoal* (`#1a1a1a`), *CAD Slate* (`#282c34`), and *Pitch Black* (`#0d0e11`) with neutral ground grid.
   - Ground grid with vehicle-aligned coordinate axes (**X**: Lateral, **Y**: Longitudinal, **Z**: Vertical).
 - **Two-Way AST Synchronization & Symmetry**:
   - **Code to Viewport**: Editing source code instantly parses and updates the 3D structural model.
   - **Viewport to Code**: Select a node in 3D and drag its translation gizmo; exact coordinates are updated in the document AST without altering comments.
   - **Left/Right Symmetry Engine**: Automatically detects and mirrors coordinate changes across symmetrical node pairs (`fr1r` ↔ `fr1l`).
+  - **PCA Symmetry Plane Detection `[EXPERIMENTAL]`**: Computes Principal Component Analysis across coordinates to detect true mirror planes.
 - **Gizmos & Multi-Node Cluster Manipulation**:
   - Hold <kbd>Shift</kbd> to select multiple nodes.
   - Unified centroid gizmo allows moving multi-node clusters while preserving relative distances.
@@ -41,11 +44,15 @@ JBeam.editor is a dedicated desktop application engineered for BeamNG.drive modd
   - **Interactive Part Swapping**: Dropdown selectors for every slot allow modders to swap parts.
   - **Independent Part Visibility Toggles**: Eye icon `👁️` toggles show/hide for individual parts in 3D.
   - **Composite 3D Visualization & Distinct Part Coloring**: Color-codes each assembly part with its own distinct palette color.
-- **Reference Meshes (DAE & Blueprints)**:
-  - Load `.dae` Collada meshes alongside JBeam nodes to align physics skeletons directly against 3D body panels.
-  - Project 2D technical drawings/blueprints into 3D space with opacity and scale controls.
-- **Powertrain Visualizer**:
-  - Interactive component graph showing engine, clutch, gearbox, transfer case, differentials, and wheel connections.
+- **Dedicated 3D Meshes (.DAE) Panel & Multi-Spawn**:
+  - Submesh explorer with individual checkboxes to spawn multiple Collada meshes simultaneously (`hood`, `doors`, `chassis`).
+  - 1-click JBeam part generation from spawned 3D meshes with auto-generated flexbody bindings.
+  - Fully integrated into both the main window and detached multi-monitor viewport.
+- **Mechanical Workspace & Dyno Studio `[EXPERIMENTAL]`**:
+  - Live Dyno & Torque / Horsepower curves with interactive RPM scrubbing and transmission gear speed calculation.
+  - Gearing & Sawtooth ratio simulator with tire radius calibration.
+  - Ackermann steering kinematics simulator visualizing lock-to-lock steering angle divergence.
+  - Powertrain device architecture inspector with **Focus 3D** camera centering and **Jump to Code** Monaco editor navigation.
 - **Live Simulation Connection (SimConnection)**:
   - Real-time socket bridge with BeamNG.drive physics engine.
   - Mirrors live node deformation and stress states directly from the game.

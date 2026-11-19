@@ -8,6 +8,7 @@ import {
   buildNodeLabelsGroup,
   buildBeamsGroup,
   buildTrianglesGroup,
+  computeConnectedTopology,
   buildMountingJointsGroup,
   buildCodeHoverGroup,
   buildEnvironmentGroup,
@@ -15,7 +16,9 @@ import {
   extractNodeCoords,
   calculateNodeMassStats,
   calculateBeamStiffnessStats,
-  calculateBeamDeformStats
+  calculateBeamDeformStats,
+  countVehicleElementTypes,
+  BEAM_TYPE_COLORS
 } from './visualizers.js';
 import { resolveFlexbodyAssociations } from '../jbeam/flexbodyUtils.js';
 import {
@@ -44,16 +47,22 @@ import {
   ExtrudeIcon,
   LayersIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
+  FilterIcon,
+  CheckIcon,
   BlueprintIcon,
   ObjModelIcon,
   PowertrainIcon,
+  MechanicalIcon,
   UndoIcon,
   RedoIcon,
   LinkIcon,
   JointIcon,
-  PopoutIcon
+  PopoutIcon,
+  CubeIcon
 } from '../../components/Icons.jsx';
 import CustomSelect from '../../components/CustomSelect.jsx';
+import NumberStepper from '../../components/NumberStepper.jsx';
 import { detectAllMirrorPlanes } from '../jbeam/symmetryUtils.js';
 import { formatBatchNodeName } from '../jbeam/batchRenamer.js';
 import VisualMeshManager from './ColladaMeshManager.js';
@@ -105,6 +114,37 @@ export const BEAM_PRESETS = {
   }
 };
 
+export const VIEWPORT_BG_PRESETS = {
+  editorGray: {
+    id: 'editorGray',
+    label: 'Editor Gray',
+    hex: '#1e2127',
+    threeColor: 0x1e2127,
+    description: 'Matches the main editor dark gray theme (Default)'
+  },
+  themeCharcoal: {
+    id: 'themeCharcoal',
+    label: 'Charcoal',
+    hex: '#1a1a1a',
+    threeColor: 0x1a1a1a,
+    description: 'Matches the main UI panels and sidebar background'
+  },
+  blenderSlate: {
+    id: 'blenderSlate',
+    label: 'CAD Slate',
+    hex: '#282c34',
+    threeColor: 0x282c34,
+    description: 'Blender & CAD style neutral gray'
+  },
+  deepBlack: {
+    id: 'deepBlack',
+    label: 'Pitch Black',
+    hex: '#0d0e11',
+    threeColor: 0x0d0e11,
+    description: 'High-contrast OLED pitch black'
+  }
+};
+
 const GRID_SNAP_STEPS = [0.05, 0.1, 0.25, 0.5, 0];
 
 export function JBeamViewport({
@@ -134,6 +174,7 @@ export function JBeamViewport({
   onDetectMirrorPlanes = null,
   onDeleteSelected,
   codeHoveredElement = null,
+  codeSelectedElements = null,
   nonActiveViewType = 'ghost',
   onChangeNonActiveViewType = null,
   multiSelectedNodes: propMultiSelectedNodes = null,
@@ -143,12 +184,22 @@ export function JBeamViewport({
   onLoadVisualMesh = null,
   onUnloadVisualMesh = null,
   discoveredDaeFiles = [],
+  selectedDaePath = '',
   onSelectProjectDae = null,
   onOpenDaeDialog = null,
   highlightedSubmesh = null,
   onHighlightSubmesh = null,
   onUpdateSubmeshNames = null,
   onUpdateSubmeshDetails = null,
+  spawnedMeshNames = null,
+  isMeshesTabActive = false,
+  isMechanicalTabActive = false,
+  focusCameraTrigger = null,
+  onOpenMechanicalWorkspace = null,
+  meshOpacity: propMeshOpacity = null,
+  onMeshOpacityChange = null,
+  meshWireframe: propMeshWireframe = null,
+  onMeshWireframeChange = null,
   isolateMatchingMesh = false,
   onToggleIsolateMesh = null,
   viewportSource = 'activeDocument',
@@ -195,6 +246,9 @@ export function JBeamViewport({
   const nodePosMapRef = useRef(new Map());
 
   // Callback Refs to prevent stale closures during pointer event handling
+  const jbeamPartsRef = useRef(jbeamParts);
+  useEffect(() => { jbeamPartsRef.current = jbeamParts; }, [jbeamParts]);
+
   const onChangeBeamTypeRef = useRef(onChangeBeamType);
   useEffect(() => { onChangeBeamTypeRef.current = onChangeBeamType; }, [onChangeBeamType]);
 
@@ -236,6 +290,18 @@ export function JBeamViewport({
 
   const onDeleteSelectedRef = useRef(onDeleteSelected);
   useEffect(() => { onDeleteSelectedRef.current = onDeleteSelected; }, [onDeleteSelected]);
+
+  const selectedNodeIdRef = useRef(selectedNodeId);
+  useEffect(() => { selectedNodeIdRef.current = selectedNodeId; }, [selectedNodeId]);
+
+  const selectedBeamInfoRef = useRef(selectedBeamInfo);
+  useEffect(() => { selectedBeamInfoRef.current = selectedBeamInfo; }, [selectedBeamInfo]);
+
+  const selectedBeamKeyRef = useRef(selectedBeamKey);
+  useEffect(() => { selectedBeamKeyRef.current = selectedBeamKey; }, [selectedBeamKey]);
+
+  const selectedSurfaceInfoRef = useRef(selectedSurfaceInfo);
+  useEffect(() => { selectedSurfaceInfoRef.current = selectedSurfaceInfo; }, [selectedSurfaceInfo]);
 
   const onBatchRenameNodeRef = useRef(onBatchRenameNode);
   useEffect(() => { onBatchRenameNodeRef.current = onBatchRenameNode; }, [onBatchRenameNode]);
@@ -287,8 +353,13 @@ export function JBeamViewport({
     visualMeshManagerRef.current = new VisualMeshManager();
   }
   const [meshVisible, setMeshVisible] = useState(true);
-  const [meshWireframe, setMeshWireframe] = useState(false);
-  const [meshOpacity, setMeshOpacity] = useState(0.45);
+  const [internalMeshWireframe, setInternalMeshWireframe] = useState(false);
+  const meshWireframe = propMeshWireframe !== null ? propMeshWireframe : internalMeshWireframe;
+  const setMeshWireframe = onMeshWireframeChange || setInternalMeshWireframe;
+
+  const [internalMeshOpacity, setInternalMeshOpacity] = useState(0.45);
+  const meshOpacity = propMeshOpacity !== null ? propMeshOpacity : internalMeshOpacity;
+  const setMeshOpacity = onMeshOpacityChange || setInternalMeshOpacity;
   const [meshStats, setMeshStats] = useState(null);
   const [internalIsolateMesh, setInternalIsolateMesh] = useState(false);
 
@@ -372,6 +443,12 @@ export function JBeamViewport({
   const [showOverlaysDropdown, setShowOverlaysDropdown] = useState(false);
   const overlaysMenuRef = useRef(null);
 
+  // Connected Topology Focus (Neighborhood X-Ray)
+  const [focusConnectedTopology, setFocusConnectedTopology] = useState(true);
+  const focusConnectedTopologyRef = useRef(focusConnectedTopology);
+  useEffect(() => { focusConnectedTopologyRef.current = focusConnectedTopology; }, [focusConnectedTopology]);
+  const focusStatsRef = useRef(null);
+
   // 3D View Mode Dropdown State
   const [showViewModeDropdown, setShowViewModeDropdown] = useState(false);
   const viewModeMenuRef = useRef(null);
@@ -379,6 +456,45 @@ export function JBeamViewport({
   // DAE Visual Mesh Dropdown State
   const [showDaeDropdown, setShowDaeDropdown] = useState(false);
   const daeMenuRef = useRef(null);
+
+  // Viewport Canvas Background Tone (defaults to theme-matching 'editorGray')
+  const [viewportBg, setViewportBg] = useState(() => {
+    try {
+      return localStorage.getItem('jbeam_viewport_bg') || 'editorGray';
+    } catch {
+      return 'editorGray';
+    }
+  });
+
+  // Synchronize Scene Background with Selected Preset
+  useEffect(() => {
+    const preset = VIEWPORT_BG_PRESETS[viewportBg] || VIEWPORT_BG_PRESETS.editorGray;
+    if (sceneRef.current) {
+      sceneRef.current.background = new THREE.Color(preset.threeColor);
+    }
+    if (rendererRef.current) {
+      rendererRef.current.setClearColor(preset.threeColor, 1);
+    }
+    if (containerRef.current) {
+      containerRef.current.style.backgroundColor = preset.hex;
+    }
+    try {
+      localStorage.setItem('jbeam_viewport_bg', viewportBg);
+    } catch {
+      // ignore
+    }
+  }, [viewportBg]);
+
+  // Synchronize across detached & main windows
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === 'jbeam_viewport_bg' && e.newValue && VIEWPORT_BG_PRESETS[e.newValue]) {
+        setViewportBg(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -513,19 +629,27 @@ export function JBeamViewport({
 
   // Statistics for floating 3D Heatmap Legend HUD
   const heatmapStats = useMemo(() => {
-    if (!jbeamParts) {
+    const partKeys = jbeamParts ? Object.keys(jbeamParts).filter(k => k !== '__meta') : [];
+    if (partKeys.length === 0) {
       return {
-        mass: { min: '1.0 kg', mid: '5.0 kg', max: '20.0 kg' },
-        stiffness: { min: '500k N/m', mid: '2.5M N/m', max: '20M N/m' },
-        deform: { min: '10kN', mid: '35kN', max: '100kN' }
+        mass: { min: '0.0 kg', mid: '0.0 kg', max: '0.0 kg' },
+        stiffness: { min: '0 N/m', mid: '0 N/m', max: '0 N/m' },
+        deform: { min: '0N', mid: '0N', max: '0N' }
       };
     }
     const allNodes = {};
     const allBeams = {};
-    for (const pKey of Object.keys(jbeamParts).filter(k => k !== '__meta')) {
+    for (const pKey of partKeys) {
       const p = jbeamParts[pKey];
       if (p?.nodes) Object.assign(allNodes, p.nodes);
       if (p?.beams) Object.assign(allBeams, p.beams);
+    }
+    if (Object.keys(allNodes).length === 0 && Object.keys(allBeams).length === 0) {
+      return {
+        mass: { min: '0.0 kg', mid: '0.0 kg', max: '0.0 kg' },
+        stiffness: { min: '0 N/m', mid: '0 N/m', max: '0 N/m' },
+        deform: { min: '0N', mid: '0N', max: '0N' }
+      };
     }
     const m = calculateNodeMassStats(allNodes);
     const s = calculateBeamStiffnessStats(allBeams);
@@ -623,10 +747,144 @@ export function JBeamViewport({
       orbitControls.mouseButtons.LEFT = isPanMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
     }
   }, [isPanMode]);
-  const [colorMode, setColorMode] = useState('type'); // 'type' (physics) or 'part' (assembly)
+  const [colorMode, setColorMode] = useState('default'); // 'default' (Normal creation view) or 'type' (physics classification)
+  const [showColorHud, setShowColorHud] = useState(true);
+  const [isColorHudCollapsed, setIsColorHudCollapsed] = useState(false);
+  const [typeFilters, setTypeFilters] = useState({
+    beams: {
+      '|NORMAL': true,
+      '|SUPPORT': true,
+      '|HYDRO': true,
+      '|BOUNDED': true,
+      '|ANISOTROPIC': true,
+      '|PRESSURED': true,
+      '|VIRTUAL': true
+    },
+    nodes: {
+      collisionOnly: true,
+      selfCollision: true,
+      nonCollidable: true,
+      wheelHub: true,
+      mount: true,
+      fixed: true,
+      external: true
+    },
+    surfaces: {
+      NORMALTYPE: true,
+      NONCOLLIDABLE: true,
+      PRESSURE: true
+    }
+  });
+
+  const toggleTypeFilter = useCallback((category, typeKey) => {
+    setTypeFilters(prev => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        [typeKey]: !prev[category]?.[typeKey]
+      }
+    }));
+  }, []);
+
+  const soloTypeFilter = useCallback((category, typeKey) => {
+    setTypeFilters(prev => {
+      const current = prev[category] || {};
+      const nextGroup = {};
+      for (const k of Object.keys(current)) {
+        nextGroup[k] = (k === typeKey);
+      }
+      return {
+        ...prev,
+        [category]: nextGroup
+      };
+    });
+  }, []);
+
+  const resetTypeFilterGroup = useCallback((category) => {
+    setTypeFilters(prev => {
+      const current = prev[category] || {};
+      const nextGroup = {};
+      for (const k of Object.keys(current)) {
+        nextGroup[k] = true;
+      }
+      return {
+        ...prev,
+        [category]: nextGroup
+      };
+    });
+  }, []);
+
+  const showAllTypes = useCallback(() => {
+    setTypeFilters({
+      beams: {
+        '|NORMAL': true,
+        '|SUPPORT': true,
+        '|HYDRO': true,
+        '|BOUNDED': true,
+        '|ANISOTROPIC': true,
+        '|PRESSURED': true,
+        '|VIRTUAL': true
+      },
+      nodes: {
+        collisionOnly: true,
+        selfCollision: true,
+        nonCollidable: true,
+        wheelHub: true,
+        mount: true,
+        fixed: true
+      },
+      surfaces: {
+        NORMALTYPE: true,
+        NONCOLLIDABLE: true,
+        PRESSURE: true
+      }
+    });
+  }, []);
+
+  const vehicleCounts = useMemo(() => {
+    if (!jbeamParts) return { beamCounts: {}, nodeCounts: {}, surfaceCounts: {}, totalBeams: 0, totalNodes: 0, totalSurfaces: 0, localNodeCount: 0, externalNodeCount: 0 };
+    const partKeys = Object.keys(jbeamParts).filter(k => k !== '__meta');
+    const beams = {};
+    const nodes = {};
+    const tris = {};
+    const quads = {};
+    for (const pk of partKeys) {
+      const p = jbeamParts[pk];
+      if (!p) continue;
+      if (p.beams) Object.assign(beams, p.beams);
+      if (p.hydros) Object.assign(beams, p.hydros);
+      if (p.nodes) Object.assign(nodes, p.nodes);
+      if (p.triangles) Object.assign(tris, p.triangles);
+      if (p.quads) Object.assign(quads, p.quads);
+    }
+    const counts = countVehicleElementTypes(beams, nodes, tris, quads, externalNodes);
+    const localNodeCount = Object.keys(nodes).filter(k => k !== '__meta').length;
+    const totalExternalNodes = counts.nodeCounts?.external || 0;
+    return {
+      ...counts,
+      localNodeCount,
+      externalNodeCount: totalExternalNodes,
+      totalBeams: Object.keys(beams).filter(k => k !== '__meta').length,
+      totalNodes: localNodeCount + totalExternalNodes,
+      totalSurfaces: Object.keys(tris).filter(k => k !== '__meta').length + Object.keys(quads).filter(k => k !== '__meta').length
+    };
+  }, [jbeamParts, externalNodes]);
+
   const [showFrontIndicator, setShowFrontIndicator] = useState(true);
 
   const updateTransformGizmoAttachmentRef = useRef(null);
+
+  // Helper to match node meshes by ID (supports scoped and unscoped IDs)
+  const matchesNode = (c, id) => {
+    if (!c || !id) return false;
+    const cid = c.userData?.id;
+    const cName = c.name;
+    return cid === id ||
+           cName === `node_${id}` ||
+           (cid && String(id).endsWith(`_${cid}`)) ||
+           (cid && String(cid).endsWith(`_${id}`)) ||
+           (c.userData?.partName && (cid === `${c.userData.partName}_${id}` || id === `${c.userData.partName}_${cid}`));
+  };
 
   // Helper to attach/detach TransformControls gizmo to selected nodes
   // Supports both 'select' and 'boxSelect' modes
@@ -643,7 +901,7 @@ export function JBeamViewport({
       const center = new THREE.Vector3();
       let count = 0;
       for (const nid of multi) {
-        const m = nodesGroupRef.current.children.find(c => c.userData?.id === nid && !c.userData?.isNonActive);
+        const m = nodesGroupRef.current.children.find(c => matchesNode(c, nid));
         if (m) { center.add(m.position); count++; }
       }
       if (count > 0) {
@@ -660,7 +918,7 @@ export function JBeamViewport({
             ? selectedNodeId
             : (multi.length === 1 ? multi[0] : null));
       if (activeNodeId) {
-        const targetMesh = nodesGroupRef.current.children.find(c => c.userData?.id === activeNodeId && !c.userData?.isNonActive);
+        const targetMesh = nodesGroupRef.current.children.find(c => matchesNode(c, activeNodeId));
         if (targetMesh) {
           transformControlsRef.current.attach(targetMesh);
         } else {
@@ -670,7 +928,7 @@ export function JBeamViewport({
         transformControlsRef.current.detach();
       }
     }
-  }, [selectedNodeId]);
+  }, [selectedNodeId, multiSelectedNodes]);
 
   useEffect(() => {
     updateTransformGizmoAttachmentRef.current = updateTransformGizmoAttachment;
@@ -802,15 +1060,21 @@ export function JBeamViewport({
 
   // Delete Click Helper (Handles multi-selected nodes, single nodes, beams, and surfaces)
   const handleDeleteClick = () => {
-    if (!onDeleteSelected) return;
-    if (multiSelectedNodesRef.current.length > 1) {
-      onDeleteSelected('nodes', multiSelectedNodesRef.current);
-    } else if (selectedNodeId) {
-      onDeleteSelected('node', selectedNodeId);
-    } else if (selectedBeamKey) {
-      onDeleteSelected('beam', selectedBeamInfo || selectedBeamKey);
-    } else if (selectedSurfaceInfo) {
-      onDeleteSelected('surface', selectedSurfaceInfo);
+    const fn = onDeleteSelectedRef.current || onDeleteSelected;
+    if (!fn) return;
+    const curMulti = multiSelectedNodesRef.current;
+    const curNid = selectedNodeIdRef.current || selectedNodeId;
+    const curBeam = selectedBeamInfoRef.current || selectedBeamInfo || selectedBeamKeyRef.current || selectedBeamKey;
+    const curSurf = selectedSurfaceInfoRef.current || selectedSurfaceInfo;
+
+    if (curMulti && curMulti.length > 1) {
+      fn('nodes', curMulti);
+    } else if (curNid) {
+      fn('node', curNid);
+    } else if (curBeam) {
+      fn('beam', curBeam);
+    } else if (curSurf) {
+      fn('surface', curSurf);
     }
   };
 
@@ -824,7 +1088,8 @@ export function JBeamViewport({
 
     // Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x18181c);
+    const bgPreset = VIEWPORT_BG_PRESETS[viewportBg] || VIEWPORT_BG_PRESETS.editorGray;
+    scene.background = new THREE.Color(bgPreset.threeColor);
     sceneRef.current = scene;
 
     // Camera
@@ -832,8 +1097,14 @@ export function JBeamViewport({
     camera.position.set(-2.5, 2.0, -3.5);
     cameraRef.current = camera;
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // Renderer (High-Performance Discrete GPU Priority: NVIDIA / AMD over Integrated)
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: 'high-performance',
+      precision: 'highp',
+      failIfMajorPerformanceCaveat: false
+    });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = false;
@@ -842,6 +1113,17 @@ export function JBeamViewport({
     renderer.domElement.style.display = 'block';
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // WebGL Context Loss Recovery
+    const handleContextLost = (e) => {
+      e.preventDefault();
+      console.warn('[JBeam Viewport] WebGL Context Lost. Attempting GPU recovery...');
+    };
+    const handleContextRestored = () => {
+      console.log('[JBeam Viewport] WebGL Context Restored.');
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost, false);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored, false);
 
     // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -1074,13 +1356,13 @@ export function JBeamViewport({
           const mirrorStarts = new Map();
           const curMulti = multiSelectedNodesRef.current || [];
           for (const nid of curMulti) {
-            const m = nodesGroupRef.current?.children.find(c => c.userData?.id === nid && !c.userData?.isNonActive);
+            const m = nodesGroupRef.current?.children.find(c => matchesNode(c, nid) && !c.userData?.isNonActive);
             if (m) {
               nodeStarts.set(nid, m.position.clone());
               if (symmetryEnabledRef.current) {
                 const mirrorId = getSymmetricNodeId(nid);
                 if (mirrorId && mirrorId !== nid) {
-                  const mMesh = nodesGroupRef.current?.children.find(c => c.userData?.id === mirrorId && !c.userData?.isNonActive);
+                  const mMesh = nodesGroupRef.current?.children.find(c => matchesNode(c, mirrorId) && !c.userData?.isNonActive);
                   if (mMesh) mirrorStarts.set(mirrorId, mMesh.position.clone());
                 }
               }
@@ -1102,7 +1384,7 @@ export function JBeamViewport({
             const batch = [];
             const processedIds = new Set();
             for (const nid of nodeStarts.keys()) {
-              const mesh = nodesGroupRef.current?.children.find(c => c.userData?.id === nid && !c.userData?.isNonActive);
+              const mesh = nodesGroupRef.current?.children.find(c => matchesNode(c, nid) && !c.userData?.isNonActive);
               if (mesh) {
                 const newPos = threeToBeamng(mesh.position.x, mesh.position.y, mesh.position.z);
                 batch.push({ id: nid, pos: newPos });
@@ -1112,7 +1394,7 @@ export function JBeamViewport({
             if (symmetryEnabledRef.current) {
               for (const mid of mirrorStarts.keys()) {
                 if (processedIds.has(mid)) continue;
-                const mesh = nodesGroupRef.current?.children.find(c => c.userData?.id === mid && !c.userData?.isNonActive);
+                const mesh = nodesGroupRef.current?.children.find(c => matchesNode(c, mid) && !c.userData?.isNonActive);
                 if (mesh) {
                   const newPos = threeToBeamng(mesh.position.x, mesh.position.y, mesh.position.z);
                   batch.push({ id: mid, pos: newPos });
@@ -1157,7 +1439,7 @@ export function JBeamViewport({
         const movedIds = new Set();
 
         for (const [nid, sPos] of nodeStarts.entries()) {
-          const mesh = nodesGroupRef.current?.children.find(c => c.userData?.id === nid && !c.userData?.isNonActive);
+          const mesh = nodesGroupRef.current?.children.find(c => matchesNode(c, nid) && !c.userData?.isNonActive);
           if (mesh) {
             mesh.position.copy(sPos.clone().add(delta));
             mesh.updateMatrix();
@@ -1168,7 +1450,7 @@ export function JBeamViewport({
         if (symmetryEnabledRef.current) {
           const mirrorDelta = new THREE.Vector3(-delta.x, delta.y, delta.z);
           for (const [mirrorId, sPos] of mirrorStarts.entries()) {
-            const mesh = nodesGroupRef.current?.children.find(c => c.userData?.id === mirrorId && !c.userData?.isNonActive);
+            const mesh = nodesGroupRef.current?.children.find(c => matchesNode(c, mirrorId) && !c.userData?.isNonActive);
             if (mesh) {
               mesh.position.copy(sPos.clone().add(mirrorDelta));
               mesh.updateMatrix();
@@ -1223,9 +1505,10 @@ export function JBeamViewport({
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
-    // High-precision node snapping helper (direct raycast + 24px screen proximity fallback)
-    const findHoveredOrNearNode = (clientX, clientY) => {
-      if (!nodesGroupRef.current || !camera) return null;
+    // High-precision node snapping helper (direct raycast + screen proximity fallback)
+    const findHoveredOrNearNode = (clientX, clientY, maxScreenDistance = 18) => {
+      if (!nodesGroupRef.current || !nodesGroupRef.current.parent || !camera) return null;
+      if (!jbeamPartsRef.current || Object.keys(jbeamPartsRef.current).filter(k => k !== '__meta').length === 0) return null;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
@@ -1237,9 +1520,9 @@ export function JBeamViewport({
         return hits[0].object;
       }
 
-      // 2. Proximity check with screen-space distance threshold (12px radius)
+      // 2. Proximity check with screen-space distance threshold (18px radius)
       let bestNode = null;
-      let minDistanceSq = 12 * 12;
+      let minDistanceSq = maxScreenDistance * maxScreenDistance;
 
       for (const child of nodesGroupRef.current.children) {
         if (!child.userData?.id) continue;
@@ -1270,9 +1553,10 @@ export function JBeamViewport({
     };
 
     // Find nearest beam segment under mouse pointer (using screen-space projection for effortless clicking at any zoom distance)
-    const findHoveredBeamSegment = (clientX, clientY, maxScreenDistance = 18) => {
+    const findHoveredBeamSegment = (clientX, clientY, maxScreenDistance = 20) => {
       const beamsGroup = beamsGroupRef.current;
-      if (!beamsGroup || !beamsGroup.userData?.beamSegments || !camera) return null;
+      if (!beamsGroup || !beamsGroup.parent || !beamsGroup.userData?.beamSegments || !camera) return null;
+      if (!jbeamPartsRef.current || Object.keys(jbeamPartsRef.current).filter(k => k !== '__meta').length === 0) return null;
       const segments = beamsGroup.userData.beamSegments;
       const rect = renderer.domElement.getBoundingClientRect();
       const mx = clientX - rect.left;
@@ -1301,8 +1585,9 @@ export function JBeamViewport({
           const ptOnBeam = new THREE.Vector3().lerpVectors(seg.pos1, seg.pos2, t);
           const camDist = camera.position.distanceTo(ptOnBeam);
 
-          const isSignificantlyCloserOnScreen = distSq < minScreenDistSq - 9;
-          const isCloserInDepth = (distSq <= minScreenDistSq + 9) && (camDist < closestCamDist);
+          const isSignificantlyCloserOnScreen = distSq < minScreenDistSq - 16;
+          const isComparableScreenDist = Math.abs(distSq - minScreenDistSq) <= 16;
+          const isCloserInDepth = isComparableScreenDist && (camDist < closestCamDist);
 
           if (isSignificantlyCloserOnScreen || isCloserInDepth || !bestSeg) {
             minScreenDistSq = distSq;
@@ -1455,6 +1740,25 @@ export function JBeamViewport({
       }
 
       const curTool = activeToolRef.current;
+
+      if (!jbeamPartsRef.current || Object.keys(jbeamPartsRef.current).filter(k => k !== '__meta').length === 0) {
+        hoveredNodeIdRef.current = null;
+        setHoveredNodeId(null);
+        hoveredNodeInfoRef.current = null;
+        setHoveredNodeInfo(null);
+        hoveredBeamRef.current = null;
+        setHoveredBeamInfo(null);
+        if (ghostMeshRef.current) { ghostMeshRef.current.position.set(0, -9999, 0); ghostMeshRef.current.visible = false; }
+        if (mirrorGhostMeshRef.current) { mirrorGhostMeshRef.current.position.set(0, -9999, 0); mirrorGhostMeshRef.current.visible = false; }
+        if (snapRingRef.current) { snapRingRef.current.position.set(0, -9999, 0); snapRingRef.current.visible = false; }
+        if (rubberBandLineRef.current) rubberBandLineRef.current.visible = false;
+        if (triPreviewMeshRef.current) triPreviewMeshRef.current.visible = false;
+        if (normalArrowRef.current) normalArrowRef.current.visible = false;
+        setCursorCoords(null);
+        setBeamLength(null);
+        return;
+      }
+
       const hitNode = findHoveredOrNearNode(e.clientX, e.clientY);
 
       if (hitNode) {
@@ -1481,6 +1785,23 @@ export function JBeamViewport({
       }
 
       // 2. Mode-Specific Visual Feedback
+      if (!jbeamPartsRef.current || Object.keys(jbeamPartsRef.current).filter(k => k !== '__meta').length === 0) {
+        hoveredBeamRef.current = null;
+        setHoveredBeamInfo(null);
+        ghostMesh.position.set(0, -9999, 0);
+        ghostMesh.visible = false;
+        mirrorGhostMesh.position.set(0, -9999, 0);
+        mirrorGhostMesh.visible = false;
+        snapRing.position.set(0, -9999, 0);
+        snapRing.visible = false;
+        rubberBandLine.visible = false;
+        triMesh.visible = false;
+        normalArrow.visible = false;
+        setCursorCoords(null);
+        setBeamLength(null);
+        return;
+      }
+
       if (curTool === 'addNode') {
         // Check if hovering near an existing beam to offer Subdivide Node insertion
         const hitBeam = findHoveredBeamSegment(e.clientX, e.clientY);
@@ -1740,6 +2061,25 @@ export function JBeamViewport({
       );
 
       const curTool = activeToolRef.current;
+
+      if (!jbeamPartsRef.current || Object.keys(jbeamPartsRef.current).filter(k => k !== '__meta').length === 0) {
+        hoveredNodeIdRef.current = null;
+        setHoveredNodeId(null);
+        hoveredNodeInfoRef.current = null;
+        setHoveredNodeInfo(null);
+        hoveredBeamRef.current = null;
+        setHoveredBeamInfo(null);
+        if (ghostMeshRef.current) { ghostMeshRef.current.position.set(0, -9999, 0); ghostMeshRef.current.visible = false; }
+        if (mirrorGhostMeshRef.current) { mirrorGhostMeshRef.current.position.set(0, -9999, 0); mirrorGhostMeshRef.current.visible = false; }
+        if (snapRingRef.current) { snapRingRef.current.position.set(0, -9999, 0); snapRingRef.current.visible = false; }
+        if (rubberBandLineRef.current) rubberBandLineRef.current.visible = false;
+        if (triPreviewMeshRef.current) triPreviewMeshRef.current.visible = false;
+        if (normalArrowRef.current) normalArrowRef.current.visible = false;
+        setCursorCoords(null);
+        setBeamLength(null);
+        return;
+      }
+
       const hitNode = findHoveredOrNearNode(e.clientX, e.clientY);
 
       if (curTool === 'addNode') {
@@ -1943,13 +2283,16 @@ export function JBeamViewport({
 
           if (newlySelected.length > 0) {
             const merged = e.shiftKey
-              ? Array.from(new Set([...multiSelectedNodesRef.current, ...newlySelected]))
+              ? Array.from(new Set([...(multiSelectedNodesRef.current || []), ...newlySelected]))
               : newlySelected;
             setMultiSelectedNodes(merged);
             multiSelectedNodesRef.current = merged;
-            if (onSelectNodeRef.current) onSelectNodeRef.current(merged[0]);
-            if (onSelectBeamRef.current) onSelectBeamRef.current(null, null, null);
-            if (onSelectSurfaceRef.current) onSelectSurfaceRef.current(null);
+            if (merged.length === 1) {
+              if (onSelectNodeRef.current) onSelectNodeRef.current(merged[0]);
+            } else {
+              if (onMultiSelectChange) onMultiSelectChange(merged);
+              if (onSelectNodeRef.current) onSelectNodeRef.current(merged[0], true);
+            }
             updateTransformGizmoAttachmentRef.current?.(merged, merged[0]);
             return;
           }
@@ -1962,59 +2305,39 @@ export function JBeamViewport({
       }
 
       // Default: Select Tool (Single Click)
-      // 1. Direct Node Mesh Intersection (exact hit on node sphere)
+      // 1. Direct Node Mesh Intersection & Screen-Space Proximity Snapping
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
 
-      const directNodeHits = raycaster.intersectObjects(nodesGroupRef.current?.children || [], false);
-      const directNode = (directNodeHits.length > 0 && directNodeHits[0].object.userData?.id) ? directNodeHits[0].object : null;
+      let nearestNode = null;
+      let minNodeDist = 18; // 18px snapping radius for nodes
 
-      if (directNode) {
-        const nid = directNode.userData.id;
-        if (e.shiftKey || e.ctrlKey) {
-          setMultiSelectedNodes(prev => {
-            const next = prev.includes(nid) ? prev.filter(x => x !== nid) : [...prev, nid];
-            multiSelectedNodesRef.current = next;
-            // Update transform attachment
-            if (transformControlsRef.current && activeToolRef.current === 'select') {
-              if (next.length > 1) {
-                const center = new THREE.Vector3();
-                let count = 0;
-                for (const id of next) {
-                  const m = nodesGroupRef.current?.children.find(c => c.userData?.id === id && !c.userData?.isNonActive);
-                  if (m) { center.add(m.position); count++; }
-                }
-                if (count > 0) {
-                  center.multiplyScalar(1 / count);
-                  multiSelectPivotRef.current.position.copy(center);
-                  transformControlsRef.current.attach(multiSelectPivotRef.current);
-                }
-              } else if (next.length === 1) {
-                const singleM = nodesGroupRef.current?.children.find(c => c.userData?.id === next[0] && !c.userData?.isNonActive);
-                if (singleM) transformControlsRef.current.attach(singleM);
-              } else {
-                transformControlsRef.current.detach();
-              }
-            }
-            return next;
-          });
+      if (nodesGroupRef.current && camera) {
+        // Direct raycast hit takes absolute precedence (screenDist = 0)
+        const directNodeHits = raycaster.intersectObjects(nodesGroupRef.current.children || [], false);
+        if (directNodeHits.length > 0 && directNodeHits[0].object.userData?.id) {
+          nearestNode = { mesh: directNodeHits[0].object, screenDist: 0 };
         } else {
-          setMultiSelectedNodes([nid]);
-          multiSelectedNodesRef.current = [nid];
-          if (transformControlsRef.current && activeToolRef.current === 'select') {
-            transformControlsRef.current.attach(directNode);
+          // Screen proximity to node centers
+          for (const child of nodesGroupRef.current.children) {
+            if (!child.userData?.id) continue;
+            const screenPos = child.position.clone().project(camera);
+            if (screenPos.z > 1 || screenPos.z < -1) continue;
+            const sx = ((screenPos.x + 1) / 2) * rect.width + rect.left;
+            const sy = ((-screenPos.y + 1) / 2) * rect.height + rect.top;
+            const dist = Math.hypot(e.clientX - sx, e.clientY - sy);
+            if (dist < minNodeDist) {
+              minNodeDist = dist;
+              nearestNode = { mesh: child, screenDist: dist };
+            }
           }
         }
-        if (onSelectNodeRef.current) onSelectNodeRef.current(nid);
-        if (onSelectBeamRef.current) onSelectBeamRef.current(null, null, null);
-        if (onSelectSurfaceRef.current) onSelectSurfaceRef.current(null);
-        return;
       }
 
-      // 2. Screen-Space Beam Proximity (18px tolerance)
-      const hitBeam = findHoveredBeamSegment(e.clientX, e.clientY, 18);
+      // 2. Screen-Space Beam Proximity (16px tolerance)
+      const hitBeam = findHoveredBeamSegment(e.clientX, e.clientY, 16);
 
       // 3. 3D Surface Face Raycasting (Triangles & Quads)
       const surfacesGroup = surfacesGroupRef.current;
@@ -2032,67 +2355,77 @@ export function JBeamViewport({
         }
       }
 
-      // Precedence: If clicked on or directly along a beam (<= 10px), prioritize beam
-      if (hitBeam && (!surfaceHitMeta || hitBeam.screenDist <= 10)) {
-        if (transformControlsRef.current) transformControlsRef.current.detach();
-        if (onSelectBeamRef.current) {
-          onSelectBeamRef.current(hitBeam.partName, hitBeam.beamKey, hitBeam.beamData);
+      // Determine what was clicked with smart prioritization
+      let selectedType = null;
+      if (nearestNode && hitBeam) {
+        // When clicking near a node junction, favor the node unless mouse is significantly closer to beam line
+        if (nearestNode.screenDist <= 8 || nearestNode.screenDist <= hitBeam.screenDist + 4) {
+          selectedType = 'node';
+        } else {
+          selectedType = 'beam';
         }
-        if (onSelectNodeRef.current) onSelectNodeRef.current(null);
-        if (onSelectSurfaceRef.current) onSelectSurfaceRef.current(null);
-        setMultiSelectedNodes([]);
-        multiSelectedNodesRef.current = [];
-        return;
+      } else if (nearestNode) {
+        selectedType = 'node';
+      } else if (hitBeam && (!surfaceHitMeta || hitBeam.screenDist <= 14)) {
+        selectedType = 'beam';
+      } else if (surfaceHitMeta) {
+        selectedType = 'surface';
+      } else if (hitBeam) {
+        selectedType = 'beam';
       }
 
-      // Prioritize Surface Face Click
-      if (surfaceHitMeta) {
-        if (transformControlsRef.current) transformControlsRef.current.detach();
-        const pName = surfaceHitMeta.partName || Object.keys(jbeamParts || {})[0] || 'default_part';
-        if (onSelectSurfaceRef.current) {
-          onSelectSurfaceRef.current({ ...surfaceHitMeta, partName: pName });
-        }
-        if (onSelectNodeRef.current) onSelectNodeRef.current(null);
-        if (onSelectBeamRef.current) onSelectBeamRef.current(null, null, null);
-        setMultiSelectedNodes([]);
-        multiSelectedNodesRef.current = [];
-        return;
-      }
-
-      // Fallback Beam Click (between 10px and 18px)
-      if (hitBeam) {
-        if (transformControlsRef.current) transformControlsRef.current.detach();
-        if (onSelectBeamRef.current) {
-          onSelectBeamRef.current(hitBeam.partName, hitBeam.beamKey, hitBeam.beamData);
-        }
-        if (onSelectNodeRef.current) onSelectNodeRef.current(null);
-        if (onSelectSurfaceRef.current) onSelectSurfaceRef.current(null);
-        setMultiSelectedNodes([]);
-        multiSelectedNodesRef.current = [];
-        return;
-      }
-
-      // 4. Proximity Node Fallback (near node center within 12px)
-      const nearbyNode = findHoveredOrNearNode(e.clientX, e.clientY);
-      if (nearbyNode) {
-        const nid = nearbyNode.userData.id;
+      if (selectedType === 'node') {
+        const targetNode = nearestNode.mesh;
+        const nid = targetNode.userData.id;
         if (e.shiftKey || e.ctrlKey) {
-          setMultiSelectedNodes(prev => {
-            const next = prev.includes(nid) ? prev.filter(x => x !== nid) : [...prev, nid];
-            multiSelectedNodesRef.current = next;
-            updateTransformGizmoAttachmentRef.current?.(next, next[next.length - 1]);
-            return next;
-          });
+          const prev = multiSelectedNodesRef.current || [];
+          const next = prev.includes(nid) ? prev.filter(x => x !== nid) : [...prev, nid];
+          setMultiSelectedNodes(next);
+          multiSelectedNodesRef.current = next;
+          updateTransformGizmoAttachmentRef.current?.(next, next[next.length - 1]);
+          if (next.length > 1) {
+            if (onMultiSelectChange) onMultiSelectChange(next);
+            if (onSelectNodeRef.current) onSelectNodeRef.current(next[next.length - 1], true);
+          } else if (next.length === 1) {
+            if (onSelectNodeRef.current) onSelectNodeRef.current(next[0]);
+          } else {
+            if (onSelectNodeRef.current) onSelectNodeRef.current(null);
+          }
         } else {
           setMultiSelectedNodes([nid]);
           multiSelectedNodesRef.current = [nid];
           if (transformControlsRef.current && (activeToolRef.current === 'select' || activeToolRef.current === 'boxSelect')) {
-            transformControlsRef.current.attach(nearbyNode);
+            transformControlsRef.current.attach(targetNode);
           }
+          if (onSelectNodeRef.current) onSelectNodeRef.current(nid);
         }
-        if (onSelectNodeRef.current) onSelectNodeRef.current(nid);
-        if (onSelectBeamRef.current) onSelectBeamRef.current(null, null, null);
-        if (onSelectSurfaceRef.current) onSelectSurfaceRef.current(null);
+        return;
+      }
+
+      if (selectedType === 'beam') {
+        if (transformControlsRef.current) transformControlsRef.current.detach();
+        setMultiSelectedNodes([]);
+        multiSelectedNodesRef.current = [];
+        if (onSelectBeamRef.current) {
+          onSelectBeamRef.current(hitBeam.partName, hitBeam.beamKey, hitBeam.beamData || {
+            'id1:': hitBeam.id1,
+            'id2:': hitBeam.id2,
+            beamType: hitBeam.beamType,
+            partName: hitBeam.partName,
+            beamKey: hitBeam.beamKey
+          });
+        }
+        return;
+      }
+
+      if (selectedType === 'surface') {
+        if (transformControlsRef.current) transformControlsRef.current.detach();
+        setMultiSelectedNodes([]);
+        multiSelectedNodesRef.current = [];
+        const pName = surfaceHitMeta.partName || Object.keys(jbeamParts || {})[0] || 'default_part';
+        if (onSelectSurfaceRef.current) {
+          onSelectSurfaceRef.current({ ...surfaceHitMeta, partName: pName });
+        }
         return;
       }
 
@@ -2110,6 +2443,8 @@ export function JBeamViewport({
           const submeshName = hitObj.name;
           if (submeshName && onHighlightSubmeshRef.current) {
             if (transformControlsRef.current) transformControlsRef.current.detach();
+            setMultiSelectedNodes([]);
+            multiSelectedNodesRef.current = [];
             onHighlightSubmeshRef.current(submeshName);
             if (onSelectNodeRef.current) onSelectNodeRef.current(null);
             if (onSelectBeamRef.current) onSelectBeamRef.current(null, null, null);
@@ -2136,6 +2471,12 @@ export function JBeamViewport({
 
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.closest('.monaco-editor')) {
+        return;
+      }
+
+      if (e.altKey && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setFocusConnectedTopology(prev => !prev);
         return;
       }
 
@@ -2172,8 +2513,12 @@ export function JBeamViewport({
         if (isPanModeRef.current) {
           setIsPanMode(false);
         }
-      } else if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'x' || e.key === 'X') {
-        handleDeleteClick();
+      } else if (e.key === 'Delete') {
+        const targetTag = e.target?.tagName?.toLowerCase();
+        if (targetTag !== 'input' && targetTag !== 'textarea') {
+          e.preventDefault();
+          handleDeleteClick();
+        }
       } else if (e.key === '.' || e.key === 'Home') {
         fitToStructureRef.current?.();
       }
@@ -2241,6 +2586,8 @@ export function JBeamViewport({
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
       renderer.domElement.removeEventListener('contextmenu', handleContextMenu);
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       currentWindow.removeEventListener('keydown', handleKeyDown);
       transformControls.dispose();
       orbitControls.removeEventListener('change', handleOrbitChange);
@@ -2319,9 +2666,27 @@ export function JBeamViewport({
       }
     }
 
+    // Always clear dynamic scene element refs when geometry updates so stale elements are never accessed
+    beamsGroupRef.current = null;
+    nodesGroupRef.current = null;
+    surfacesGroupRef.current = null;
+    nodePosMapRef.current = new Map();
+    hoveredBeamRef.current = null;
+    hoveredNodeIdRef.current = null;
+    hoveredNodeInfoRef.current = null;
+
+    if (transformControlsRef.current) transformControlsRef.current.detach();
+    if (snapRingRef.current) snapRingRef.current.visible = false;
+    if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+    if (mirrorGhostMeshRef.current) mirrorGhostMeshRef.current.visible = false;
+    if (rubberBandLineRef.current) rubberBandLineRef.current.visible = false;
+    if (triPreviewMeshRef.current) triPreviewMeshRef.current.visible = false;
+    if (normalArrowRef.current) normalArrowRef.current.visible = false;
+
     if (!jbeamParts || typeof jbeamParts !== 'object') return;
 
     const partKeys = Object.keys(jbeamParts).filter(k => k !== '__meta');
+    if (partKeys.length === 0) return;
     let mergedNodes = {};
     let mergedBeams = {};
     let mergedTriangles = {};
@@ -2399,6 +2764,26 @@ export function JBeamViewport({
 
     nodePosMapRef.current = nodePosMap;
 
+    // Compute Connected Topology Focus (Neighborhood X-Ray)
+    const rawSelectedNodeList = [];
+    if (typeof selectedNodeId === 'string' && selectedNodeId) {
+      rawSelectedNodeList.push(selectedNodeId);
+    } else if (Array.isArray(selectedNodeId)) {
+      rawSelectedNodeList.push(...selectedNodeId);
+    }
+    if (Array.isArray(multiSelectedNodes)) {
+      rawSelectedNodeList.push(...multiSelectedNodes);
+    }
+
+    const focusConnected = (focusConnectedTopology && rawSelectedNodeList.length > 0)
+      ? computeConnectedTopology(rawSelectedNodeList, mergedBeams, symmetryEnabled)
+      : null;
+
+    focusStatsRef.current = focusConnected?.enabled ? {
+      beams: focusConnected.connectedBeamsCount,
+      neighbors: focusConnected.neighborNodesCount
+    } : null;
+
     // Build Triangles and Quads (Aerodynamic & Collision Surfaces)
     const hasSurfaces = Object.keys(mergedTriangles).length > 0 || Object.keys(mergedQuads).length > 0;
     if (visibility.triangles && hasSurfaces) {
@@ -2406,7 +2791,10 @@ export function JBeamViewport({
         faceOrientation,
         showNormals,
         selectedSurface: selectedSurfaceInfo,
-        nonActiveViewType
+        nonActiveViewType,
+        colorMode,
+        typeFilters,
+        focusConnected
       });
       structureGroup.add(surfacesGroup);
       surfacesGroupRef.current = surfacesGroup;
@@ -2416,7 +2804,17 @@ export function JBeamViewport({
 
     // Build Beams (including cross-part virtual connectors)
     if (visibility.beams && Object.keys(mergedBeams).length > 0) {
-      const beamsGroup = buildBeamsGroup(mergedBeams, mergedNodes, selectedBeamKey, colorMode, externalNodes, nonActiveViewType, selectedBeamInfo);
+      const beamsGroup = buildBeamsGroup(
+        mergedBeams,
+        mergedNodes,
+        selectedBeamKey,
+        colorMode,
+        externalNodes,
+        nonActiveViewType,
+        selectedBeamInfo,
+        typeFilters,
+        { focusConnected }
+      );
       structureGroup.add(beamsGroup);
       beamsGroupRef.current = beamsGroup;
     } else {
@@ -2434,14 +2832,48 @@ export function JBeamViewport({
       }
     }
 
+    // Also include external reference nodes connected by current beams so they render and can be inspected
+    if (externalNodes && typeof externalNodes === 'object') {
+      const referencedExternalIds = new Set();
+      for (const bKey of Object.keys(mergedBeams).filter(k => k !== '__meta')) {
+        const b = mergedBeams[bKey];
+        if (!b) continue;
+        const id1 = b['id1:'];
+        const id2 = b['id2:'];
+        if (id1 && !visualNodesDict[id1] && externalNodes[id1]) referencedExternalIds.add(id1);
+        if (id2 && !visualNodesDict[id2] && externalNodes[id2]) referencedExternalIds.add(id2);
+      }
+      for (const extId of referencedExternalIds) {
+        const extNode = externalNodes[extId];
+        if (extNode) {
+          visualNodesDict[`ext_${extId}`] = {
+            ...extNode,
+            id: extId,
+            name: extId,
+            __isExternal: true,
+            __partName: extNode.__partName || 'external'
+          };
+        }
+      }
+    }
+
     if (visibility.nodes && Object.keys(visualNodesDict).length > 0) {
-      const nodesGroup = buildNodesGroup(visualNodesDict, selectedNodeId, colorMode, highlightedFlexbodyNodeIds, multiSelectedNodes, nonActiveViewType);
+      const nodesGroup = buildNodesGroup(
+        visualNodesDict,
+        selectedNodeId,
+        colorMode,
+        highlightedFlexbodyNodeIds,
+        multiSelectedNodes,
+        nonActiveViewType,
+        typeFilters,
+        { focusConnected }
+      );
       structureGroup.add(nodesGroup);
       nodesGroupRef.current = nodesGroup;
 
       // Build Node Labels (if toggled on)
       if (visibility.labels) {
-        const labelsGroup = buildNodeLabelsGroup(visualNodesDict, selectedNodeId, highlightedFlexbodyNodeIds);
+        const labelsGroup = buildNodeLabelsGroup(visualNodesDict, selectedNodeId, highlightedFlexbodyNodeIds, { focusConnected });
         structureGroup.add(labelsGroup);
       }
 
@@ -2455,7 +2887,7 @@ export function JBeamViewport({
           const center = new THREE.Vector3();
           let count = 0;
           for (const nid of multiSelectedNodes) {
-            const m = nodesGroup.children.find(c => c.userData?.id === nid && !c.userData?.isNonActive);
+            const m = nodesGroup.children.find(c => matchesNode(c, nid));
             if (m) {
               center.add(m.position);
               count++;
@@ -2469,7 +2901,7 @@ export function JBeamViewport({
             transformControlsRef.current.detach();
           }
         } else if (activeNodeId) {
-          const targetMesh = nodesGroup.children.find(c => c.userData?.id === activeNodeId && !c.userData?.isNonActive);
+          const targetMesh = nodesGroup.children.find(c => matchesNode(c, activeNodeId));
           if (targetMesh) {
             transformControlsRef.current.attach(targetMesh);
           } else {
@@ -2514,9 +2946,12 @@ export function JBeamViewport({
       nodesGroupRef.current = null;
       if (transformControlsRef.current) transformControlsRef.current.detach();
     }
-  }, [jbeamParts, selectedNodeId, multiSelectedNodes, selectedBeamKey, selectedBeamInfo, selectedSurfaceInfo, visibility, colorMode, externalNodes, highlightedFlexbodyNodeIds, faceOrientation, showNormals, showGhostWheels, showCogMarker, nonActiveViewType, activeTool, viewportSource]);
 
-  // Live 3D Focus Highlight for Monaco Code-Hover
+    // Inside Meshes tab: Hide JBeam wireframe to isolate 3D visual meshes being inspected
+    structureGroup.visible = !isMeshesTabActive;
+  }, [jbeamParts, selectedNodeId, multiSelectedNodes, selectedBeamKey, selectedBeamInfo, selectedSurfaceInfo, visibility, colorMode, typeFilters, externalNodes, highlightedFlexbodyNodeIds, faceOrientation, showNormals, showGhostWheels, showCogMarker, nonActiveViewType, activeTool, viewportSource, isMeshesTabActive, focusConnectedTopology, symmetryEnabled]);
+
+  // Live 3D Focus Highlight for Monaco Code-Hover & Multi-line Code Selection
   useEffect(() => {
     const group = codeHoverGroupRef.current;
     if (!group) return;
@@ -2530,7 +2965,7 @@ export function JBeamViewport({
       }
     }
 
-    if (!codeHoveredElement || !jbeamParts) return;
+    if ((!codeHoveredElement && !codeSelectedElements) || !jbeamParts) return;
 
     const mergedNodes = {};
     for (const pKey of Object.keys(jbeamParts).filter(k => k !== '__meta')) {
@@ -2542,11 +2977,14 @@ export function JBeamViewport({
       }
     }
 
-    const hoverOverlay = buildCodeHoverGroup(codeHoveredElement, mergedNodes);
+    const hoverOverlay = buildCodeHoverGroup({
+      hovered: codeHoveredElement,
+      selected: codeSelectedElements
+    }, mergedNodes);
     while (hoverOverlay.children.length > 0) {
       group.add(hoverOverlay.children.pop());
     }
-  }, [codeHoveredElement, jbeamParts]);
+  }, [codeHoveredElement, codeSelectedElements, jbeamParts]);
 
   // Option 3: Visual Mesh (.dae) Loading & Opacity synchronization
   useEffect(() => {
@@ -2577,6 +3015,14 @@ export function JBeamViewport({
         }
         if (onUpdateSubmeshDetails) {
           onUpdateSubmeshDetails(res.submeshDetails || {});
+        }
+        if (isMeshesTabActive) {
+          const effectiveSpawned = (spawnedMeshNames && (spawnedMeshNames.size > 0 || (Array.isArray(spawnedMeshNames) && spawnedMeshNames.length > 0)))
+            ? spawnedMeshNames
+            : new Set(res.submeshNames || []);
+          visualMeshManagerRef.current.filterSubmeshes(effectiveSpawned, true);
+        } else {
+          visualMeshManagerRef.current.filterSubmeshes(activeMatchingMeshNames, true);
         }
       }
     } else if (visualMeshManagerRef.current && !visualMeshDaeText) {
@@ -2626,14 +3072,25 @@ export function JBeamViewport({
   }, [highlightedSubmesh]);
 
   useEffect(() => {
-    if (visualMeshManagerRef.current && visualMeshManagerRef.current.currentMesh) {
-      if (effectiveIsolateMesh && activeMatchingMeshNames.size > 0) {
-        visualMeshManagerRef.current.filterSubmeshes(activeMatchingMeshNames);
+    // Isolate viewport when Meshes tab is active: hide JBeam physics wireframe to focus on 3D models
+    if (structureGroupRef.current) {
+      structureGroupRef.current.visible = !isMeshesTabActive;
+    }
+
+    if (visualMeshManagerRef.current && (visualMeshManagerRef.current.currentMesh || visualMeshManagerRef.current.allMeshes?.length > 0)) {
+      if (isMeshesTabActive) {
+        // Inside Meshes tab: Show ONLY the user-spawned submeshes from the Meshes panel
+        const effectiveSpawned = (spawnedMeshNames && (spawnedMeshNames.size > 0 || (Array.isArray(spawnedMeshNames) && spawnedMeshNames.length > 0)))
+          ? spawnedMeshNames
+          : (spawnedMeshNames instanceof Set ? spawnedMeshNames : new Set(meshStats?.submeshNames || []));
+        visualMeshManagerRef.current.filterSubmeshes(effectiveSpawned, true);
       } else {
-        visualMeshManagerRef.current.filterSubmeshes(null);
+        // Outside Meshes tab (Code, Files, Assembly):
+        // Show ONLY the 3D submesh(es) corresponding to whatever is opened in the code editor
+        visualMeshManagerRef.current.filterSubmeshes(activeMatchingMeshNames, true);
       }
     }
-  }, [effectiveIsolateMesh, activeMatchingMeshNames, visualMeshDaeText]);
+  }, [effectiveIsolateMesh, activeMatchingMeshNames, visualMeshDaeText, spawnedMeshNames, isMeshesTabActive]);
 
   const handleDaeFileChosen = (e) => {
     const file = e.target.files?.[0];
@@ -2657,9 +3114,9 @@ export function JBeamViewport({
 
     const box = new THREE.Box3();
 
-    // 1. Include JBeam physics structure (nodes, beams, triangles)
+    // 1. Include JBeam physics structure (nodes, beams, triangles) when not isolated to Meshes tab
     const structureGroup = structureGroupRef.current;
-    if (structureGroup && structureGroup.children.length > 0) {
+    if (!isMeshesTabActive && structureGroup && structureGroup.children.length > 0) {
       structureGroup.updateMatrixWorld(true);
       const sBox = new THREE.Box3().setFromObject(structureGroup);
       if (!sBox.isEmpty()) {
@@ -2710,7 +3167,7 @@ export function JBeamViewport({
     camera.updateProjectionMatrix();
     camera.lookAt(center);
     orbitControls.update();
-  }, []);
+  }, [isMeshesTabActive]);
 
   const fitToStructureRef = useRef(fitToStructure);
   useEffect(() => {
@@ -2728,6 +3185,110 @@ export function JBeamViewport({
       return () => clearTimeout(timer);
     }
   }, [viewportSource, fitToStructure]);
+
+  // Auto-fit camera framing when switching to/from Meshes tab
+  const prevIsMeshesTabActiveRef = useRef(isMeshesTabActive);
+  useEffect(() => {
+    if (prevIsMeshesTabActiveRef.current !== isMeshesTabActive) {
+      prevIsMeshesTabActiveRef.current = isMeshesTabActive;
+      const timer = setTimeout(() => {
+        fitToStructureRef.current?.();
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [isMeshesTabActive]);
+
+  // Camera focus on a specific 3D target position (Node, Beam, or Submesh)
+  const focusOnTarget = useCallback((targetPos, radius = 0.8) => {
+    const camera = cameraRef.current;
+    const orbitControls = orbitControlsRef.current;
+    if (!camera || !orbitControls || !targetPos) return;
+
+    const fov = camera.fov * (Math.PI / 180);
+    const cameraDistance = Math.max(1.2, Math.min(6.0, Math.abs(radius / Math.tan(fov / 2)) * 1.5));
+
+    const dir = new THREE.Vector3().subVectors(camera.position, orbitControls.target);
+    if (dir.lengthSq() < 0.01) {
+      dir.set(0.7, 0.5, 0.8);
+    }
+    dir.normalize();
+
+    camera.position.copy(targetPos).addScaledVector(dir, cameraDistance);
+    orbitControls.target.copy(targetPos);
+    camera.lookAt(targetPos);
+    orbitControls.update();
+  }, []);
+
+  // React to programmatic 3D focus triggers (e.g. from Mechanical Workspace or Inspector)
+  useEffect(() => {
+    if (!focusCameraTrigger) return;
+    const { targetNodeId, targetPos, targetSubmesh, targetBeam } = focusCameraTrigger;
+
+    // 1. Direct 3D Vector
+    if (targetPos) {
+      const vec = Array.isArray(targetPos)
+        ? new THREE.Vector3(targetPos[0], targetPos[1], targetPos[2])
+        : targetPos;
+      focusOnTarget(vec, 0.6);
+      return;
+    }
+
+    // 2. Target Node ID
+    if (targetNodeId) {
+      let foundPos = null;
+      if (nodePosMapRef.current) {
+        for (const [key, pos] of nodePosMapRef.current.entries()) {
+          if (key === targetNodeId || key.endsWith(`_${targetNodeId}`) || targetNodeId.endsWith(`_${key}`)) {
+            foundPos = new THREE.Vector3(pos[0], pos[1], pos[2]);
+            break;
+          }
+        }
+      }
+      if (!foundPos && nodesGroupRef.current) {
+        const mesh = nodesGroupRef.current.children.find(c => {
+          const id = c.userData?.id;
+          return id === targetNodeId || id?.endsWith(`_${targetNodeId}`) || targetNodeId.endsWith(`_${id}`);
+        });
+        if (mesh) {
+          foundPos = mesh.position.clone();
+        }
+      }
+      if (foundPos) {
+        focusOnTarget(foundPos, 0.7);
+        return;
+      }
+    }
+
+    // 3. Target Beam (id1 <-> id2 midpoint)
+    if (targetBeam?.id1 && targetBeam?.id2 && nodePosMapRef.current) {
+      let p1 = null, p2 = null;
+      for (const [key, pos] of nodePosMapRef.current.entries()) {
+        if (!p1 && (key === targetBeam.id1 || key.endsWith(`_${targetBeam.id1}`))) {
+          p1 = new THREE.Vector3(pos[0], pos[1], pos[2]);
+        }
+        if (!p2 && (key === targetBeam.id2 || key.endsWith(`_${targetBeam.id2}`))) {
+          p2 = new THREE.Vector3(pos[0], pos[1], pos[2]);
+        }
+        if (p1 && p2) break;
+      }
+      if (p1 && p2) {
+        const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+        const dist = p1.distanceTo(p2);
+        focusOnTarget(mid, Math.max(0.6, dist * 0.8));
+        return;
+      }
+    }
+
+    // 4. Target Submesh
+    if (targetSubmesh && visualMeshManagerRef.current) {
+      const bBox = visualMeshManagerRef.current.getSubmeshBoundingBox(targetSubmesh);
+      if (bBox && !bBox.isEmpty()) {
+        const center = bBox.getCenter(new THREE.Vector3());
+        const size = bBox.getSize(new THREE.Vector3());
+        focusOnTarget(center, Math.max(size.x, size.y, size.z, 0.5));
+      }
+    }
+  }, [focusCameraTrigger, focusOnTarget]);
 
   // Preset Views (Iso, Top, Bottom, Front, Rear, Side Left/Right)
   const setCameraPreset = (preset) => {
@@ -2764,7 +3325,10 @@ export function JBeamViewport({
   const currentTool = activeTool || internalTool;
 
   return (
-    <div className={`blender-viewport-container ${isPanMode ? 'pan-mode-active' : ''}`}>
+    <div
+      className={`blender-viewport-container ${isPanMode ? 'pan-mode-active' : ''}`}
+      style={{ backgroundColor: (VIEWPORT_BG_PRESETS[viewportBg] || VIEWPORT_BG_PRESETS.editorGray).hex }}
+    >
       {/* 3D WebGL Canvas */}
       <div ref={containerRef} className="blender-viewport-canvas" />
 
@@ -2812,28 +3376,31 @@ export function JBeamViewport({
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
                 className={`header-pill-btn view-mode-trigger-btn ${showViewModeDropdown ? 'active' : ''}`}
-                title="Switch 3D Viewport Mode: Single Part, Vehicle Assembly, Multi-Part Linkage, or Powertrain Studio"
+                title="Switch 3D Viewport Mode: Single Part or Multi-Part Linkage"
               >
-                {viewportSource === 'assembly' ? (
+                {isMeshesTabActive ? (
+                  <CubeIcon size={13} style={{ color: '#38bdf8' }} />
+                ) : viewportSource === 'assembly' ? (
                   <AssemblyIcon size={13} />
                 ) : viewportSource === 'openTabs' ? (
                   <LinkIcon size={13} />
-                ) : viewportSource === 'powertrain' ? (
-                  <PowertrainIcon size={13} />
+                ) : isMechanicalTabActive ? (
+                  <MechanicalIcon size={13} />
                 ) : (
                   <FileIcon size={13} />
                 )}
-                <span>View Mode</span>
-                <span className="view-mode-active-pill">
-                  {viewportSource === 'assembly'
+                <span className="view-mode-active-pill" style={isMeshesTabActive ? { color: '#38bdf8', fontWeight: 600 } : undefined}>
+                  {isMeshesTabActive
+                    ? '3D Meshes'
+                    : viewportSource === 'assembly'
                     ? 'Assembly'
                     : viewportSource === 'openTabs'
                     ? 'Multi-Part'
-                    : viewportSource === 'powertrain'
-                    ? 'Powertrain'
+                    : isMechanicalTabActive
+                    ? 'Mechanical'
                     : 'Part'}
                 </span>
-                <ChevronDownIcon size={11} className={`dropdown-chevron ${showViewModeDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDownIcon size={10} className={`dropdown-chevron ${showViewModeDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showViewModeDropdown && (
@@ -2859,25 +3426,8 @@ export function JBeamViewport({
                       <div className="view-mode-option-desc">Focused editing of active JBeam document</div>
                     </div>
                     {(viewportSource === 'activeDocument' || !viewportSource || viewportSource === 'default') && (
-                      <span className="view-mode-option-check">✓</span>
+                      <span className="view-mode-option-check"><CheckIcon size={12} /></span>
                     )}
-                  </div>
-
-                  <div
-                    className={`dropdown-menu-action-item view-mode-option ${viewportSource === 'assembly' ? 'active' : ''}`}
-                    onClick={() => {
-                      onChangeViewportSource('assembly');
-                      setShowViewModeDropdown(false);
-                    }}
-                  >
-                    <div className="view-mode-option-icon">
-                      <AssemblyIcon size={14} />
-                    </div>
-                    <div className="view-mode-option-text">
-                      <div className="view-mode-option-title">Vehicle Assembly</div>
-                      <div className="view-mode-option-desc">Full vehicle assembly with all slots & components</div>
-                    </div>
-                    {viewportSource === 'assembly' && <span className="view-mode-option-check">✓</span>}
                   </div>
 
                   <div
@@ -2894,24 +3444,7 @@ export function JBeamViewport({
                       <div className="view-mode-option-title">Multi-Part Linkage</div>
                       <div className="view-mode-option-desc">Multi-tab CAD wireframe, mount nodes & links</div>
                     </div>
-                    {viewportSource === 'openTabs' && <span className="view-mode-option-check">✓</span>}
-                  </div>
-
-                  <div
-                    className={`dropdown-menu-action-item view-mode-option ${viewportSource === 'powertrain' ? 'active' : ''}`}
-                    onClick={() => {
-                      onChangeViewportSource('powertrain');
-                      setShowViewModeDropdown(false);
-                    }}
-                  >
-                    <div className="view-mode-option-icon">
-                      <PowertrainIcon size={14} />
-                    </div>
-                    <div className="view-mode-option-text">
-                      <div className="view-mode-option-title">Powertrain Studio</div>
-                      <div className="view-mode-option-desc">Drivetrain DAG, torque curves & dyno analysis</div>
-                    </div>
-                    {viewportSource === 'powertrain' && <span className="view-mode-option-check">✓</span>}
+                    {viewportSource === 'openTabs' && <span className="view-mode-option-check"><CheckIcon size={12} /></span>}
                   </div>
                 </div>
               )}
@@ -2920,54 +3453,61 @@ export function JBeamViewport({
 
           {/* Multi-Part Linkage Sub-Actions */}
           {viewportSource === 'openTabs' && (
-            <div className="header-pill-group non-active-style-selector">
-              <button
-                type="button"
-                onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('cadWire')}
-                className={`header-pill-btn ${nonActiveViewType === 'cadWire' || nonActiveViewType === 'wireframe' ? 'active' : ''}`}
-                title="CAD Wire: Color-code each open component with high-contrast CAD wireframe"
-              >
-                <span>CAD Wire</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('mountPoints')}
-                className={`header-pill-btn ${nonActiveViewType === 'mountPoints' ? 'active' : ''}`}
-                title="Mount Points: Highlight interface proximity nodes ready for mounting"
-              >
-                <JointIcon size={11} />
-                <span>Mounts</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('crossBeams')}
-                className={`header-pill-btn ${nonActiveViewType === 'crossBeams' ? 'active' : ''}`}
-                title="Cross-Beams: Emphasize inter-component mounting and virtual connector beams"
-              >
-                <span>Cross-Beams</span>
-              </button>
-              {onAutoLinkMounts && (
+            <>
+              <div className="header-pill-group non-active-style-selector">
                 <button
                   type="button"
-                  onClick={onAutoLinkMounts}
-                  className="header-pill-btn auto-mount-btn"
-                  title="Auto-Mount: Automatically connect closest detected proximity joint pairs with BeamNG mounting beams (optional: true)"
+                  onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('cadWire')}
+                  className={`header-pill-btn ${nonActiveViewType === 'cadWire' || nonActiveViewType === 'wireframe' ? 'active' : ''}`}
+                  title="CAD Wire: Color-code each open component with high-contrast CAD wireframe"
                 >
-                  <LinkIcon size={11} />
-                  <span>Auto-Mount</span>
+                  <span>CAD Wire</span>
                 </button>
-              )}
-              {nodeCollisionCount > 0 && onPrefixActiveNodes && (
                 <button
                   type="button"
-                  onClick={onPrefixActiveNodes}
-                  className="header-pill-btn prefix-nodes-btn"
-                  title={`Resolve ${nodeCollisionCount} node collisions between open parts by prefixing active part nodes with '${suggestedPrefix}'`}
+                  onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('mountPoints')}
+                  className={`header-pill-btn ${nonActiveViewType === 'mountPoints' ? 'active' : ''}`}
+                  title="Mount Points: Highlight interface proximity nodes ready for mounting"
                 >
-                  <span>Prefix ({suggestedPrefix}*)</span>
+                  <JointIcon size={11} />
+                  <span>Mounts</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeNonActiveViewType && onChangeNonActiveViewType('crossBeams')}
+                  className={`header-pill-btn ${nonActiveViewType === 'crossBeams' ? 'active' : ''}`}
+                  title="Cross-Beams: Emphasize inter-component mounting and virtual connector beams"
+                >
+                  <span>Cross</span>
+                </button>
+              </div>
+
+              {(onAutoLinkMounts || (nodeCollisionCount > 0 && onPrefixActiveNodes)) && (
+                <div className="header-pill-group">
+                  {onAutoLinkMounts && (
+                    <button
+                      type="button"
+                      onClick={onAutoLinkMounts}
+                      className="header-pill-btn auto-mount-btn"
+                      title="Auto-Mount: Automatically connect closest detected proximity joint pairs with BeamNG mounting beams (optional: true)"
+                    >
+                      <LinkIcon size={11} />
+                      <span>Mount</span>
+                    </button>
+                  )}
+                  {nodeCollisionCount > 0 && onPrefixActiveNodes && (
+                    <button
+                      type="button"
+                      onClick={onPrefixActiveNodes}
+                      className="header-pill-btn prefix-nodes-btn"
+                      title={`Resolve ${nodeCollisionCount} node collisions between open parts by prefixing active part nodes with '${suggestedPrefix}'`}
+                    >
+                      <span>Clash ({suggestedPrefix}*)</span>
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
 
           {/* Undo & Redo Controls */}
@@ -2994,22 +3534,22 @@ export function JBeamViewport({
 
           <div className="header-divider" />
 
-          {/* Combined Snap Mode & Value Pill Group (Seamless Theme Match) */}
-          <div className="header-pill-group">
+          {/* Combined Snap Mode & Value Pill Group */}
+          <div className="header-pill-group snap-pill-group">
             <button
               type="button"
               onClick={handleToggleSnapMode}
-              className="header-pill-btn"
+              className="header-pill-btn snap-mode-btn"
               title={`Snap Mode: ${snapMode === 'grid' ? 'Grid Snap' : 'DAE Mesh Snap'}. Click to switch to ${snapMode === 'grid' ? 'DAE Snap' : 'Grid Snap'}.`}
             >
               <SnapIcon
-                size={13}
+                size={12}
                 active={
                   (snapMode === 'grid' && internalGridSnap > 0) ||
                   (snapMode === 'dae' && snapToMeshVertex)
                 }
               />
-              <span>{snapMode === 'grid' ? 'Grid' : 'DAE'}</span>
+              <span className="snap-mode-label">{snapMode === 'grid' ? 'Grid' : 'DAE'}</span>
             </button>
 
             <button
@@ -3034,84 +3574,76 @@ export function JBeamViewport({
             </button>
           </div>
 
-          {/* Bilateral Symmetry (X-Mirror) & PCA Symmetry Detection */}
-          <div className="header-pill-group">
+          {/* Bilateral Symmetry (X-Mirror) */}
+          <div className="header-pill-group symmetry-pill-group">
             <button
               type="button"
               onClick={() => onToggleSymmetry && onToggleSymmetry()}
               className={`header-pill-btn ${symmetryEnabled ? 'active' : ''}`}
-              title="Toggle Bilateral Left/Right Symmetry Mirroring (X-Axis)"
+              title={`Bilateral Left/Right Symmetry Mirroring (X-Axis): ${symmetryEnabled ? 'ON' : 'OFF'}`}
             >
-              <SymmetryIcon size={14} active={Boolean(symmetryEnabled)} />
-              <span>X-Mirror: {symmetryEnabled ? 'ON' : 'OFF'}</span>
+              <SymmetryIcon size={13} active={Boolean(symmetryEnabled)} />
+              <span className="symmetry-label">X-Mirror</span>
             </button>
           </div>
 
+          {/* Connected Topology Focus Pill */}
+          {(selectedNodeId || multiSelectedNodes.length > 0) && (
+            <div className="header-pill-group focus-pill-group">
+              <button
+                type="button"
+                onClick={() => setFocusConnectedTopology(prev => !prev)}
+                className={`header-pill-btn ${focusConnectedTopology ? 'active' : ''}`}
+                style={focusConnectedTopology ? { borderColor: 'rgba(56, 189, 248, 0.4)', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8' } : {}}
+                title={`Connected Topology Focus (Neighborhood X-Ray): ${focusConnectedTopology ? 'ON (Highlighting connections, dimming background geometry)' : 'OFF'}. Click or press Alt+F to toggle.`}
+              >
+                <FocusIcon size={12} active={Boolean(focusConnectedTopology)} />
+                <span>
+                  {focusConnectedTopology
+                    ? (focusStatsRef.current ? `Focus: ${focusStatsRef.current.beams} Beams, ${focusStatsRef.current.neighbors} Nodes` : 'Focus Connected')
+                    : 'Focus: OFF'}
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* Quick Action Pills for Selection (Extrude E, Connect F, Subdivide W) */}
           {(selectedNodeId || multiSelectedNodes.length > 0) && (
-            <div className="header-pill-group">
+            <div className="header-pill-group selection-actions-group">
               <button
+                type="button"
                 onClick={() => handleExtrude([0, -0.3, 0])}
                 className="header-pill-btn"
                 title="Extrude Selected Node(s) with connecting beams and cross-bracing (E)"
               >
                 <ExtrudeIcon size={12} />
-                <span>Extrude (E)</span>
+                <span>Extrude</span>
               </button>
               {multiSelectedNodes.length >= 2 && (
                 <button
+                  type="button"
                   onClick={handleQuickConnect}
                   className="header-pill-btn"
                   title="Quick-Connect Selected Nodes into Beam, Triangle, or Quad (F)"
                 >
-                  <span>Connect {multiSelectedNodes.length} Nodes (F)</span>
+                  <LinkIcon size={12} />
+                  <span>Connect</span>
                 </button>
               )}
             </div>
           )}
 
           {selectedBeamKey && (
-            <div className="header-pill-group">
+            <div className="header-pill-group selection-actions-group">
               <button
+                type="button"
                 onClick={handleSubdivideSelectedBeam}
                 className="header-pill-btn"
                 title="Subdivide Selected Beam into Two Segments (W)"
               >
                 <SubdivideIcon size={12} />
-                <span>Subdivide (W)</span>
+                <span>Subdivide</span>
               </button>
-            </div>
-          )}
-
-          {selectedBeamKey && selectedBeamInfo?.beam && (
-            <div className="header-preset-group" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span className="header-label" style={{ fontSize: 11, opacity: 0.85 }}>Type:</span>
-              <CustomSelect
-                value={selectedBeamInfo.beam.beamType || '|NORMAL'}
-                options={[
-                  { value: '|NORMAL', label: 'Normal' },
-                  { value: '|SUPPORT', label: 'Support' },
-                  { value: '|HYDRO', label: 'Hydro' },
-                  { value: '|BOUNDED', label: 'Bounded' },
-                  { value: '|ANISOTROPIC', label: 'Anisotropic' },
-                  { value: '|PRESSURED', label: 'Pressured' },
-                  { value: '|LBEAM', label: 'L-Beam' }
-                ]}
-                onChange={(val) => {
-                  if (onChangeBeamTypeRef.current && selectedBeamInfo) {
-                    onChangeBeamTypeRef.current(
-                      selectedBeamInfo.partName,
-                      selectedBeamInfo.beam['id1:'],
-                      selectedBeamInfo.beam['id2:'],
-                      val
-                    );
-                  }
-                }}
-                compact={true}
-                searchable={false}
-                className="header-custom-select"
-                title="Change Selected Beam Type"
-              />
             </div>
           )}
 
@@ -3145,20 +3677,6 @@ export function JBeamViewport({
               />
             </div>
           )}
-
-          {/* Delete Button when an element is selected (Sleek Theme Match) */}
-          {(selectedNodeId || selectedBeamKey) && (
-            <div className="header-pill-group">
-              <button
-                onClick={handleDeleteClick}
-                className="header-pill-btn delete-pill-btn"
-                title="Delete Selected Element (Del)"
-              >
-                <TrashIcon size={13} />
-                <span>Delete {selectedNodeId ? `Node (${selectedNodeId})` : 'Beam'}</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Header Right: Primary Geometry Visibility & Viewport Overlays */}
@@ -3166,6 +3684,7 @@ export function JBeamViewport({
           {/* Primary Geometry Visibility */}
           <div className="header-pill-group">
             <button
+              type="button"
               onClick={() => setVisibility(v => ({ ...v, nodes: !v.nodes }))}
               className={`header-pill-btn ${visibility.nodes ? 'active' : ''}`}
               title="Toggle Nodes Visibility"
@@ -3173,6 +3692,7 @@ export function JBeamViewport({
               Nodes
             </button>
             <button
+              type="button"
               onClick={() => setVisibility(v => ({ ...v, beams: !v.beams }))}
               className={`header-pill-btn ${visibility.beams ? 'active' : ''}`}
               title="Toggle Beams Visibility"
@@ -3180,6 +3700,7 @@ export function JBeamViewport({
               Beams
             </button>
             <button
+              type="button"
               onClick={() => setVisibility(v => ({ ...v, triangles: !v.triangles }))}
               className={`header-pill-btn ${visibility.triangles ? 'active' : ''}`}
               title="Toggle Triangles Visibility"
@@ -3249,6 +3770,15 @@ export function JBeamViewport({
                   <span className="dropdown-item-label">Face Orientation (Blue/Red)</span>
                 </label>
 
+                <label className="dropdown-menu-item" title="Highlight directly connected beams & neighbor nodes, dimming unconnected vehicle geometry (Alt+F)">
+                  <input
+                    type="checkbox"
+                    checked={focusConnectedTopology}
+                    onChange={() => setFocusConnectedTopology(v => !v)}
+                  />
+                  <span className="dropdown-item-label">Focus Connected Topology (Alt+F)</span>
+                </label>
+
                 <div className="dropdown-menu-divider" />
                 <div className="dropdown-section-title">Physics & Symmetry Diagnostics</div>
 
@@ -3283,9 +3813,31 @@ export function JBeamViewport({
                 </div>
 
                 <div className="dropdown-menu-divider" />
-                <div className="dropdown-section-title">Color Mode</div>
+                <div className="dropdown-section-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Color Mode & Legend</span>
+                  <button
+                    type="button"
+                    className={`dropdown-hud-toggle-pill ${showColorHud ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowColorHud(prev => !prev);
+                      if (!showColorHud) setIsColorHudCollapsed(false);
+                    }}
+                    title={showColorHud ? "Hide Left Legend HUD panel" : "Spawn Left Legend HUD panel on Viewport"}
+                  >
+                    {showColorHud ? "HUD Active" : "Spawn HUD"}
+                  </button>
+                </div>
 
                 <div className="dropdown-color-mode-pills">
+                  <button
+                    type="button"
+                    className={`color-pill ${colorMode === 'default' ? 'active' : ''}`}
+                    onClick={() => setColorMode('default')}
+                    title="Clean uniform CAD view for creating node-beam structures"
+                  >
+                    Normal
+                  </button>
                   <button
                     type="button"
                     className={`color-pill ${colorMode === 'type' ? 'active' : ''}`}
@@ -3326,6 +3878,41 @@ export function JBeamViewport({
                   >
                     Deform
                   </button>
+                </div>
+
+                {!showColorHud && (
+                  <div
+                    className="dropdown-menu-action-item"
+                    style={{ marginTop: 4 }}
+                    onClick={() => {
+                      setShowColorHud(true);
+                      setIsColorHudCollapsed(false);
+                    }}
+                    title="Spawn floating Color Mode & Physics Type Filter HUD on the left"
+                  >
+                    <PaletteIcon size={12} />
+                    <span>Spawn Left Filter & Legend HUD</span>
+                  </div>
+                )}
+
+                <div className="dropdown-menu-divider" />
+                <div className="dropdown-section-title">Viewport Background</div>
+                <div className="dropdown-bg-theme-pills">
+                  {Object.values(VIEWPORT_BG_PRESETS).map(preset => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`bg-theme-pill ${viewportBg === preset.id ? 'active' : ''}`}
+                      onClick={() => setViewportBg(preset.id)}
+                      title={preset.description}
+                    >
+                      <span className="bg-theme-color-dot" style={{ backgroundColor: preset.hex }} />
+                      <span className="bg-theme-label">{preset.label}</span>
+                      {viewportBg === preset.id && (
+                        <CheckIcon size={12} className="bg-theme-check-icon" />
+                      )}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="dropdown-menu-divider" />
@@ -3372,7 +3959,7 @@ export function JBeamViewport({
               onChange={handleDaeFileChosen}
             />
 
-            {discoveredDaeFiles && discoveredDaeFiles.length > 0 ? (
+            {(discoveredDaeFiles && discoveredDaeFiles.length > 0) || visualMeshDaeText ? (
               <div className="viewport-dropdown-container dae-dropdown-container" ref={daeMenuRef}>
                 <button
                   type="button"
@@ -3382,15 +3969,17 @@ export function JBeamViewport({
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   className={`header-pill-btn dae-dropdown-trigger ${showDaeDropdown ? 'active' : ''} ${visualMeshDaeText ? 'has-mesh' : ''}`}
-                  title="Visual Mesh Overlay: Select a 3D model (.dae) to overlay or composite"
+                  title="Visual Mesh Overlay: Select a 3D model (.dae) to overlay or adjust shading"
                 >
                   <MeshIcon size={12} />
                   <span className="dae-trigger-label">
-                    {visualMeshName && (visualMeshName === '__all__' || visualMeshName.startsWith('All Project Models'))
-                      ? `All Models (${discoveredDaeFiles.length})`
-                      : (visualMeshName ? visualMeshName : 'No Visual Mesh')}
+                    {selectedDaePath === '__none__' || !visualMeshName
+                      ? 'No Visual Mesh'
+                      : (visualMeshName && (visualMeshName === '__all__' || visualMeshName.startsWith('All Project Models'))
+                        ? `All Models (${discoveredDaeFiles?.length || 0})`
+                        : visualMeshName)}
                   </span>
-                  <ChevronDownIcon size={11} className={`dropdown-chevron ${showDaeDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDownIcon size={10} className={`dropdown-chevron ${showDaeDropdown ? 'rotate-180' : ''}`} />
                 </button>
 
                 {showDaeDropdown && (
@@ -3399,13 +3988,71 @@ export function JBeamViewport({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="dropdown-section-title">Visual Mesh Overlay (.dae)</div>
+                    {/* Active Mesh Shading & Display Controls */}
+                    {visualMeshDaeText && (
+                      <div className="dae-menu-shading-section">
+                        <div className="dropdown-section-title">Mesh Shading & Display</div>
+                        <div className="dae-shading-pills">
+                          <button
+                            type="button"
+                            onClick={handleToggleIsolate}
+                            className={`header-pill-btn dae-pill-action ${effectiveIsolateMesh ? 'active' : ''}`}
+                            title={effectiveIsolateMesh
+                              ? "Currently showing ONLY 3D submeshes matching active .jbeam file. Click to show full vehicle."
+                              : "Currently showing entire 3D model. Click to isolate ONLY 3D submeshes matching active .jbeam file."
+                            }
+                          >
+                            <FocusIcon size={12} />
+                            <span>{effectiveIsolateMesh ? 'Active Only' : 'All Meshes'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setMeshWireframe(w => !w)}
+                            className={`header-pill-btn dae-pill-action ${meshWireframe ? 'active' : ''}`}
+                            title="Toggle Solid Surface vs Wireframe Cage"
+                          >
+                            <WireframeIcon size={12} />
+                            <span>{meshWireframe ? 'Wireframe' : 'Solid'}</span>
+                          </button>
+                        </div>
+
+                        <div className="dae-slider-row">
+                          <div className="dae-slider-header">
+                            <span>Ghost Opacity</span>
+                            <span className="dae-slider-value">{Math.round(meshOpacity * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.05"
+                            max="1"
+                            step="0.05"
+                            value={meshOpacity}
+                            onChange={(e) => setMeshOpacity(parseFloat(e.target.value))}
+                            className="dae-menu-opacity-slider"
+                            title={`Adjust Ghost Opacity (${Math.round(meshOpacity * 100)}%)`}
+                          />
+                        </div>
+
+                        <div className="dropdown-menu-divider" />
+                      </div>
+                    )}
+
+                    <div className="dropdown-section-title">Select 3D Mesh (.dae)</div>
 
                     {/* No Visual Mesh */}
                     <div
-                      className={`dropdown-menu-action-item dae-menu-option ${!visualMeshName ? 'active' : ''}`}
+                      className={`dropdown-menu-action-item dae-menu-option ${selectedDaePath === '__none__' || !visualMeshName ? 'active' : ''}`}
                       onClick={() => {
-                        if (onSelectProjectDae) onSelectProjectDae('');
+                        if (visualMeshManagerRef.current) {
+                          visualMeshManagerRef.current.clear();
+                        }
+                        if (onUnloadVisualMesh) {
+                          onUnloadVisualMesh();
+                        }
+                        if (onSelectProjectDae) {
+                          onSelectProjectDae('__none__');
+                        }
                         setShowDaeDropdown(false);
                       }}
                     >
@@ -3416,11 +4063,11 @@ export function JBeamViewport({
                         <div className="dae-option-title">No Visual Mesh</div>
                         <div className="dae-option-desc">Hide all visual Collada meshes</div>
                       </div>
-                      {!visualMeshName && <span className="view-mode-option-check">✓</span>}
+                      {(selectedDaePath === '__none__' || !visualMeshName) && <span className="view-mode-option-check"><CheckIcon size={12} /></span>}
                     </div>
 
                     {/* All Project Models */}
-                    {discoveredDaeFiles.length > 1 && (
+                    {discoveredDaeFiles && discoveredDaeFiles.length > 1 && (
                       <div
                         className={`dropdown-menu-action-item dae-menu-option ${
                           visualMeshName && (visualMeshName === '__all__' || visualMeshName.startsWith('All Project Models'))
@@ -3440,16 +4087,16 @@ export function JBeamViewport({
                           <div className="dae-option-desc">Composite all discovered project .dae meshes</div>
                         </div>
                         {visualMeshName && (visualMeshName === '__all__' || visualMeshName.startsWith('All Project Models')) && (
-                          <span className="view-mode-option-check">✓</span>
+                          <span className="view-mode-option-check"><CheckIcon size={12} /></span>
                         )}
                       </div>
                     )}
 
-                    {discoveredDaeFiles.length > 0 && <div className="dropdown-menu-divider" />}
-                    {discoveredDaeFiles.length > 0 && <div className="dropdown-section-title">Project DAE Files</div>}
+                    {discoveredDaeFiles && discoveredDaeFiles.length > 0 && <div className="dropdown-menu-divider" />}
+                    {discoveredDaeFiles && discoveredDaeFiles.length > 0 && <div className="dropdown-section-title">Project DAE Files</div>}
 
-                    {discoveredDaeFiles.map(d => {
-                      const isSelected = visualMeshName === d.name;
+                    {discoveredDaeFiles && discoveredDaeFiles.map(d => {
+                      const isSelected = selectedDaePath !== '__none__' && (selectedDaePath === d.path || (!selectedDaePath && visualMeshName === d.name));
                       return (
                         <div
                           key={d.path}
@@ -3466,7 +4113,7 @@ export function JBeamViewport({
                             <div className="dae-option-title">{d.name}</div>
                             <div className="dae-option-desc">{d.path}</div>
                           </div>
-                          {isSelected && <span className="view-mode-option-check">✓</span>}
+                          {isSelected && <span className="view-mode-option-check"><CheckIcon size={12} /></span>}
                         </div>
                       );
                     })}
@@ -3495,6 +4142,7 @@ export function JBeamViewport({
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => {
                   if (onOpenDaeDialog) onOpenDaeDialog();
                   else daeInputRef.current?.click();
@@ -3502,74 +4150,26 @@ export function JBeamViewport({
                 className={`header-pill-btn ${visualMeshDaeText ? 'active' : ''}`}
                 title="Load Collada (.dae) 3D Model Visual Overlay"
               >
-                <MeshIcon size={13} />
-                <span>{visualMeshName ? visualMeshName : '+ .dae'}</span>
+                <MeshIcon size={12} />
+                <span>+ .dae</span>
               </button>
             )}
 
             {visualMeshDaeText && (
               <>
                 <button
-                  onClick={handleToggleIsolate}
-                  className={`header-pill-btn ${effectiveIsolateMesh ? 'active' : ''}`}
-                  title={effectiveIsolateMesh
-                    ? "Currently showing ONLY 3D submeshes matching active .jbeam file. Click to show full vehicle."
-                    : "Currently showing entire 3D model. Click to isolate ONLY 3D submeshes matching active .jbeam file."
-                  }
-                >
-                  <FocusIcon size={12} />
-                  <span>{effectiveIsolateMesh ? 'Active Only' : 'All Meshes'}</span>
-                </button>
-
-                <button
+                  type="button"
                   onClick={() => setMeshVisible(v => !v)}
                   className={`header-pill-btn ${meshVisible ? 'active' : ''}`}
-                  title="Toggle Visual Ghost Mesh Visibility"
+                  title={meshVisible ? 'Visual Mesh Ghost Visible (Click to Hide)' : 'Visual Mesh Ghost Hidden (Click to Show)'}
                 >
                   <GhostIcon size={12} />
                   <span>{meshVisible ? 'Ghost' : 'Hidden'}</span>
                 </button>
 
-                <button
-                  onClick={() => setMeshWireframe(w => !w)}
-                  className={`header-pill-btn ${meshWireframe ? 'active' : ''}`}
-                  title="Toggle Solid Surface vs Wireframe Cage"
-                >
-                  <WireframeIcon size={12} />
-                  <span>{meshWireframe ? 'Wire' : 'Solid'}</span>
-                </button>
-
-                <div
-                  className="header-slider-container"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onPointerMove={(e) => e.stopPropagation()}
-                  onPointerUp={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onMouseMove={(e) => e.stopPropagation()}
-                  onMouseUp={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="range"
-                    min="0.05"
-                    max="1"
-                    step="0.05"
-                    value={meshOpacity}
-                    onChange={(e) => setMeshOpacity(parseFloat(e.target.value))}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onPointerMove={(e) => e.stopPropagation()}
-                    onPointerUp={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onMouseMove={(e) => e.stopPropagation()}
-                    onMouseUp={(e) => e.stopPropagation()}
-                    className="header-opacity-slider"
-                    title={`Adjust Ghost Opacity (${Math.round(meshOpacity * 100)}%)`}
-                  />
-                  <span className="header-slider-readout">{Math.round(meshOpacity * 100)}%</span>
-                </div>
-
                 {onUnloadVisualMesh && (
                   <button
+                    type="button"
                     onClick={onUnloadVisualMesh}
                     className="header-pill-btn icon-only"
                     title="Unload Visual Mesh Overlay"
@@ -3583,7 +4183,7 @@ export function JBeamViewport({
 
           {/* Blueprint Reference Studio Button */}
           {onOpenBlueprintModal && (
-            <div className="header-pill-group">
+            <div className="header-pill-group blueprint-group">
               <button
                 type="button"
                 onClick={onOpenBlueprintModal}
@@ -3591,7 +4191,7 @@ export function JBeamViewport({
                 title="Blueprint Reference Studio: Align & calibrate orthographic top/front/side blueprints"
               >
                 <BlueprintIcon size={12} />
-                <span>Blueprints</span>
+                <span className="blueprint-btn-label">Blueprints</span>
               </button>
             </div>
           )}
@@ -3670,21 +4270,6 @@ export function JBeamViewport({
         </button>
 
         <button
-          onClick={() => {
-            if (selectedNodeId || multiSelectedNodesRef.current.length > 0) {
-              handleExtrude([0, -0.3, 0]);
-            } else {
-              handleSetTool('extrude');
-            }
-          }}
-          className={`blender-tool-btn ${currentTool === 'extrude' ? 'active' : ''}`}
-          title="Extrude Selected Node(s) with Connecting Beams & Cross-Bracing (E)"
-        >
-          <ExtrudeIcon size={17} />
-          <span className="tool-tooltip">Extrude (E)</span>
-        </button>
-
-        <button
           onClick={() => handleSetTool(currentTool === 'batchRename' ? 'select' : 'batchRename')}
           className={`blender-tool-btn ${currentTool === 'batchRename' ? 'active' : ''}`}
           title="Batch Node Renamer (R) - Click nodes in 3D to rename sequentially"
@@ -3699,17 +4284,38 @@ export function JBeamViewport({
           onClick={handleDeleteClick}
           disabled={!selectedNodeId && !selectedBeamKey && !selectedSurfaceInfo && multiSelectedNodes.length === 0}
           className={`blender-tool-btn delete-tool-btn ${selectedNodeId || selectedBeamKey || selectedSurfaceInfo || multiSelectedNodes.length > 0 ? 'can-delete' : ''}`}
-          title={multiSelectedNodes.length > 1 ? `Delete ${multiSelectedNodes.length} Selected Nodes ${symmetryEnabled ? '(+Mirror)' : ''} (Del or X)` : (selectedSurfaceInfo ? `Delete Surface ${symmetryEnabled ? '(+Mirror)' : ''} (Del or X)` : `Delete Selected Element ${symmetryEnabled ? '(+Mirror)' : ''} (Del or X)`)}
+          title={multiSelectedNodes.length > 1 ? `Delete ${multiSelectedNodes.length} Selected Nodes ${symmetryEnabled ? '(+Mirror)' : ''} (Delete)` : (selectedSurfaceInfo ? `Delete Surface ${symmetryEnabled ? '(+Mirror)' : ''} (Delete)` : `Delete Selected Element ${symmetryEnabled ? '(+Mirror)' : ''} (Delete)`)}
         >
           <TrashIcon size={17} />
-          <span className="tool-tooltip">Delete (Del / X)</span>
+          <span className="tool-tooltip">Delete (Del)</span>
         </button>
       </div>
 
       {/* Dynamic Creation Prompt Banner (Modern Dark Theme Matching Rest of Studio) */}
       {currentTool !== 'select' && (
         <div className="blender-action-prompt">
-          {currentTool === 'addNode' && (
+          {(!jbeamParts || Object.keys(jbeamParts).filter(k => k !== '__meta').length === 0) ? (
+            <div className="prompt-content-row">
+              <span className="prompt-tool-badge" style={{ borderColor: 'rgba(245, 158, 11, 0.4)', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
+                <NodeIcon size={12} />
+                <span>Notice</span>
+              </span>
+              <span className="prompt-instruction-text" style={{ color: '#fbbf24' }}>
+                No active JBeam file open. Open a file to start editing.
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSetTool('select')}
+                className="prompt-cancel-btn"
+                title="Cancel (Esc)"
+              >
+                <CloseIcon size={10} />
+                <span>Esc</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {currentTool === 'addNode' && (
             <div className="prompt-content-row">
               <span className="prompt-tool-badge">
                 <NodeIcon size={12} />
@@ -3882,13 +4488,12 @@ export function JBeamViewport({
               </div>
               <div className="prompt-inline-group">
                 <label>Index:</label>
-                <input
-                  type="number"
-                  min="1"
+                <NumberStepper
+                  min={1}
                   value={batchRenameIndex}
-                  onChange={(e) => onUpdateBatchRenameIndex && onUpdateBatchRenameIndex(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="prompt-inline-number"
+                  onChange={(val) => onUpdateBatchRenameIndex && onUpdateBatchRenameIndex(val)}
                   title="Next sequential index number"
+                  width={54}
                 />
               </div>
               <span className="prompt-data-badge" title="Next node clicked will be renamed to this">
@@ -3917,49 +4522,348 @@ export function JBeamViewport({
               </button>
             </div>
           )}
+            </>
+          )}
         </div>
       )}
 
-      {/* 3D Heatmap Legend HUD */}
-      {(colorMode === 'mass' || colorMode === 'stiffness' || colorMode === 'deform') && (
-        <div className="heatmap-legend-hud">
+      {/* 3D Heatmap & Color Mode HUD (Hidden when Meshes Tab is active to isolate 3D models) */}
+      {showColorHud && !isMeshesTabActive && (colorMode === 'type' || colorMode === 'mass' || colorMode === 'stiffness' || colorMode === 'deform' || colorMode === 'part' || colorMode === 'default') &&
+        jbeamParts && Object.keys(jbeamParts).filter(k => k !== '__meta').length > 0 && (
+        isColorHudCollapsed ? (
+          <div
+            className="heatmap-legend-hud collapsed"
+            onClick={() => setIsColorHudCollapsed(false)}
+            title="Click to expand Left HUD"
+          >
+            <div className="heatmap-hud-collapsed-pill">
+              <span className="collapsed-hud-icon"><PaletteIcon size={13} className="text-accent" /></span>
+              <span className="collapsed-hud-title">
+                {colorMode === 'default' && `Normal View (${vehicleCounts.totalBeams || 0} Beams)`}
+                {colorMode === 'type' && 'Physics Classification (Types)'}
+                {colorMode === 'mass' && 'Mass Heatmap'}
+                {colorMode === 'stiffness' && 'Stiffness Heatmap'}
+                {colorMode === 'deform' && 'Deform Heatmap'}
+                {colorMode === 'part' && 'Part Colors'}
+              </span>
+              <span className="collapsed-expand-arrow"><ChevronUpIcon size={12} /></span>
+            </div>
+          </div>
+        ) : (
+        <div className="heatmap-legend-hud" title={`Active Color Mode: ${colorMode}`}>
           <div className="heatmap-hud-header">
-            <span className="heatmap-hud-title">
-              {colorMode === 'mass' && 'Node Mass Heatmap'}
-              {colorMode === 'stiffness' && 'Beam Stiffness (beamSpring)'}
-              {colorMode === 'deform' && 'Crash Yield & Deform (beamDeform)'}
-            </span>
-            <span className={`heatmap-hud-mode-tag ${colorMode}`}>
-              {colorMode.toUpperCase()}
-            </span>
+            <div className="heatmap-hud-title-row">
+              <span className="heatmap-hud-title">
+                {colorMode === 'default' && 'Normal Structure (Creation View)'}
+                {colorMode === 'type' && 'Physics Classification & Filters'}
+                {colorMode === 'mass' && 'Node Mass Heatmap'}
+                {colorMode === 'stiffness' && 'Beam Stiffness (beamSpring)'}
+                {colorMode === 'deform' && 'Crash Yield & Deform (beamDeform)'}
+                {colorMode === 'part' && 'Part Colors (Assembly)'}
+              </span>
+              <span className={`heatmap-hud-mode-tag ${colorMode}`}>
+                {colorMode.toUpperCase()}
+              </span>
+            </div>
+            <div className="heatmap-hud-header-actions">
+              <button
+                type="button"
+                className="hud-header-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsColorHudCollapsed(true);
+                }}
+                title="Collapse panel to mini-pill"
+              >
+                —
+              </button>
+              <button
+                type="button"
+                className="hud-header-btn close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowColorHud(false);
+                }}
+                title="Close HUD (can re-open from Overlays dropdown)"
+              >
+                ×
+              </button>
+            </div>
           </div>
 
-          <div className={`heatmap-hud-bar ${colorMode}`} />
-
-          <div className="heatmap-hud-labels">
-            {colorMode === 'mass' && (
-              <>
-                <span>{heatmapStats.mass.min}</span>
-                <span>{heatmapStats.mass.mid}</span>
-                <span>{heatmapStats.mass.max}</span>
-              </>
-            )}
-            {colorMode === 'stiffness' && (
-              <>
-                <span>{heatmapStats.stiffness.min}</span>
-                <span>{heatmapStats.stiffness.mid}</span>
-                <span>{heatmapStats.stiffness.max}</span>
-              </>
-            )}
-            {colorMode === 'deform' && (
-              <>
-                <span style={{ color: '#ff5252' }}>{heatmapStats.deform.min} (Crush)</span>
-                <span style={{ color: '#ffd600' }}>{heatmapStats.deform.mid}</span>
-                <span style={{ color: '#00e5ff' }}>{heatmapStats.deform.max} (Rigid)</span>
-              </>
-            )}
+          {/* Quick Color Mode Switcher Chips (default, type, part, mass, stiffness, deform) */}
+          <div className="heatmap-hud-chips">
+            {[
+              { id: 'default', label: 'Normal' },
+              { id: 'type', label: 'Type' },
+              { id: 'part', label: 'Part' },
+              { id: 'mass', label: 'Mass' },
+              { id: 'stiffness', label: 'Stiffness' },
+              { id: 'deform', label: 'Deform' }
+            ].map(m => (
+              <button
+                key={m.id}
+                type="button"
+                className={`color-chip-btn ${colorMode === m.id ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setColorMode(m.id);
+                }}
+                title={`Switch Viewport Color Mode to ${m.label}`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
+
+          {/* Type Classification & Interactive Filter Legend */}
+          {colorMode === 'type' && (
+            <div className="type-legend-container">
+              {/* Quick Reset All Action */}
+              <div className="type-filter-global-bar">
+                <span className="text-muted" style={{ fontSize: 9 }}>Click chip to toggle, click [S] to solo:</span>
+                <button
+                  type="button"
+                  className="type-btn-all"
+                  onClick={showAllTypes}
+                  title="Restore all beam, node, and surface types"
+                >
+                  Show All Types
+                </button>
+              </div>
+
+              {/* BEAMS Section */}
+              <div className="type-legend-group">
+                <div className="type-legend-title-row">
+                  <span className="type-legend-title">BEAMS</span>
+                  <div className="type-legend-actions">
+                    <button type="button" className="type-action-btn" onClick={() => resetTypeFilterGroup('beams')}>All</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('beams', '|SUPPORT')} title="View only support beams">Solo Support</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('beams', '|VIRTUAL')} title="View only external mount connections">Solo External</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('beams', '|HYDRO')} title="View only hydro actuators">Solo Hydro</button>
+                  </div>
+                </div>
+                <div className="type-legend-grid">
+                  {[
+                    { id: '|NORMAL', label: 'Normal', color: '#22c55e' },
+                    { id: '|SUPPORT', label: 'Support', color: '#fbbf24' },
+                    { id: '|HYDRO', label: 'Hydro', color: '#00e5ff' },
+                    { id: '|BOUNDED', label: 'Bounded', color: '#d946ef' },
+                    { id: '|ANISOTROPIC', label: 'Aniso', color: '#ff6b00' },
+                    { id: '|PRESSURED', label: 'Pressure', color: '#818cf8' },
+                    { id: '|VIRTUAL', label: 'External', color: '#c084fc' }
+                  ].map(b => {
+                    const isActive = typeFilters.beams?.[b.id] !== false;
+                    const count = vehicleCounts.beamCounts?.[b.id] || 0;
+                    return (
+                      <div
+                        key={b.id}
+                        className={`type-interactive-chip ${isActive ? 'active' : 'inactive'}`}
+                        onClick={() => toggleTypeFilter('beams', b.id)}
+                        title={`Toggle ${b.label} Beams (${count} in vehicle)`}
+                      >
+                        <span className="color-dot" style={{ backgroundColor: b.color, opacity: isActive ? 1 : 0.3 }} />
+                        <span className="type-chip-label">{b.label}</span>
+                        <span className="type-chip-count">{count}</span>
+                        <button
+                          type="button"
+                          className="type-chip-solo-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            soloTypeFilter('beams', b.id);
+                          }}
+                          title={`Solo ${b.label} beams only`}
+                        >
+                          S
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* NODES Section */}
+              <div className="type-legend-group">
+                <div className="type-legend-title-row">
+                  <span className="type-legend-title">NODES</span>
+                  <div className="type-legend-actions">
+                    <button type="button" className="type-action-btn" onClick={() => resetTypeFilterGroup('nodes')}>All</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('nodes', 'mount')} title="View only engine/drivetrain mounts">Solo Mounts</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('nodes', 'wheelHub')} title="View only wheel hubs">Solo Hubs</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('nodes', 'external')} title="View only external anchor reference nodes">Solo External</button>
+                  </div>
+                </div>
+                <div className="type-legend-grid">
+                  {[
+                    { id: 'collisionOnly', label: 'Collision', color: '#f8fafc' },
+                    { id: 'selfCollision', label: 'Self-Coll', color: '#38bdf8' },
+                    { id: 'nonCollidable', label: 'Non-Coll', color: '#64748b' },
+                    { id: 'wheelHub', label: 'Wheel Hub', color: '#eab308' },
+                    { id: 'mount', label: 'Mount', color: '#ef4444' },
+                    { id: 'fixed', label: 'Fixed', color: '#ff0033' },
+                    { id: 'external', label: 'External', color: '#c084fc' }
+                  ].map(n => {
+                    const isActive = typeFilters.nodes?.[n.id] !== false;
+                    const count = vehicleCounts.nodeCounts?.[n.id] || 0;
+                    return (
+                      <div
+                        key={n.id}
+                        className={`type-interactive-chip ${isActive ? 'active' : 'inactive'}`}
+                        onClick={() => toggleTypeFilter('nodes', n.id)}
+                        title={`Toggle ${n.label} Nodes (${count} in vehicle)`}
+                      >
+                        <span className="color-dot" style={{ backgroundColor: n.color, opacity: isActive ? 1 : 0.3 }} />
+                        <span className="type-chip-label">{n.label}</span>
+                        <span className="type-chip-count">{count}</span>
+                        <button
+                          type="button"
+                          className="type-chip-solo-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            soloTypeFilter('nodes', n.id);
+                          }}
+                          title={`Solo ${n.label} nodes only`}
+                        >
+                          S
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SURFACES Section */}
+              <div className="type-legend-group">
+                <div className="type-legend-title-row">
+                  <span className="type-legend-title">SURFACES (Tris & Quads)</span>
+                  <div className="type-legend-actions">
+                    <button type="button" className="type-action-btn" onClick={() => resetTypeFilterGroup('surfaces')}>All</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('surfaces', 'NONCOLLIDABLE')} title="View only aerodynamic surfaces">Solo Aero</button>
+                    <button type="button" className="type-action-btn" onClick={() => soloTypeFilter('surfaces', 'NORMALTYPE')} title="View only collision hull surfaces">Solo Hull</button>
+                  </div>
+                </div>
+                <div className="type-legend-grid">
+                  {[
+                    { id: 'NORMALTYPE', label: 'Collision Hull', color: '#1e3a8a' },
+                    { id: 'NONCOLLIDABLE', label: 'Aero Only', color: '#065f46' },
+                    { id: 'PRESSURE', label: 'Pressure', color: '#881337' }
+                  ].map(s => {
+                    const isActive = typeFilters.surfaces?.[s.id] !== false;
+                    const count = vehicleCounts.surfaceCounts?.[s.id] || 0;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`type-interactive-chip ${isActive ? 'active' : 'inactive'}`}
+                        onClick={() => toggleTypeFilter('surfaces', s.id)}
+                        title={`Toggle ${s.label} Surfaces (${count} in vehicle)`}
+                      >
+                        <span className="color-dot" style={{ backgroundColor: s.color, opacity: isActive ? 1 : 0.3 }} />
+                        <span className="type-chip-label">{s.label}</span>
+                        <span className="type-chip-count">{count}</span>
+                        <button
+                          type="button"
+                          className="type-chip-solo-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            soloTypeFilter('surfaces', s.id);
+                          }}
+                          title={`Solo ${s.label} surfaces only`}
+                        >
+                          S
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Normal Mode Creation Overview */}
+          {colorMode === 'default' && (
+            <div className="normal-mode-hud-container">
+              <div className="normal-mode-stats-grid">
+                <div
+                  className="normal-stat-card"
+                  title={vehicleCounts.externalNodeCount > 0 ? `${vehicleCounts.localNodeCount || 0} Local Nodes + ${vehicleCounts.externalNodeCount} External Connection Nodes` : `${vehicleCounts.localNodeCount || 0} Nodes`}
+                >
+                  <span className="normal-stat-val" style={{ color: '#f8fafc' }}>
+                    {vehicleCounts.localNodeCount || 0}
+                    {vehicleCounts.externalNodeCount > 0 && (
+                      <span style={{ fontSize: 10, color: '#c084fc', marginLeft: 4, fontWeight: 'normal' }} title={`${vehicleCounts.externalNodeCount} External connection anchor nodes`}>
+                        (+{vehicleCounts.externalNodeCount})
+                      </span>
+                    )}
+                  </span>
+                  <span className="normal-stat-lbl">
+                    <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', backgroundColor: '#f8fafc', marginRight: 3, verticalAlign: 'middle', boxShadow: '0 0 4px #fff' }} />
+                    Nodes
+                  </span>
+                </div>
+                <div className="normal-stat-card">
+                  <span className="normal-stat-val" style={{ color: '#22c55e' }}>{vehicleCounts.totalBeams || 0}</span>
+                  <span className="normal-stat-lbl">
+                    <span style={{ display: 'inline-block', width: 8, height: 2, backgroundColor: '#22c55e', marginRight: 3, verticalAlign: 'middle', boxShadow: '0 0 4px #22c55e' }} />
+                    Beams
+                  </span>
+                </div>
+                <div className="normal-stat-card">
+                  <span className="normal-stat-val" style={{ color: '#93c5fd' }}>{vehicleCounts.totalSurfaces || 0}</span>
+                  <span className="normal-stat-lbl">
+                    <span style={{ display: 'inline-block', width: 6, height: 6, backgroundColor: '#2563eb', border: '1px solid #818cf8', borderRadius: 2, marginRight: 3, verticalAlign: 'middle' }} />
+                    Surfaces
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(colorMode === 'mass' || colorMode === 'stiffness' || colorMode === 'deform') && (
+            <>
+              <div className={`heatmap-hud-bar ${colorMode}`} />
+
+              <div className="heatmap-hud-labels">
+                {colorMode === 'mass' && (
+                  <>
+                    <span>{heatmapStats.mass.min}</span>
+                    <span>{heatmapStats.mass.mid}</span>
+                    <span>{heatmapStats.mass.max}</span>
+                  </>
+                )}
+                {colorMode === 'stiffness' && (
+                  <>
+                    <span>{heatmapStats.stiffness.min}</span>
+                    <span>{heatmapStats.stiffness.mid}</span>
+                    <span>{heatmapStats.stiffness.max}</span>
+                  </>
+                )}
+                {colorMode === 'deform' && (
+                  <>
+                    <span style={{ color: '#ff5252' }}>{heatmapStats.deform.min} (Crush)</span>
+                    <span style={{ color: '#ffd600' }}>{heatmapStats.deform.mid}</span>
+                    <span style={{ color: '#00e5ff' }}>{heatmapStats.deform.max} (Rigid)</span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {colorMode === 'part' && (
+            <div className="heatmap-hud-parts-list">
+              {Object.keys(jbeamParts || {}).filter(k => k !== '__meta').slice(0, 5).map((pk, idx) => {
+                const pData = jbeamParts[pk];
+                const pColor = pData?.__componentColor || (idx === 0 ? '#40c4ff' : '#f59e0b');
+                return (
+                  <div key={pk} className="heatmap-part-item">
+                    <span className="heatmap-part-dot" style={{ backgroundColor: pColor }} />
+                    <span className="heatmap-part-name" title={pk}>{pk}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
+        )
       )}
     </div>
   );

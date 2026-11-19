@@ -105,9 +105,15 @@ export function runVirtualBeamsAndOffsetTests() {
     const group = buildBeamsGroup(beams, localNodes, null, 'type', externalNodes);
     assert.ok(group, 'Group should be created');
 
-    // Should create virtual lines mesh for mount_chassis
+    // Should create virtual lines mesh for mount_chassis with distinct technical Dash-Dot chain line
     const virtualLine = group.children.find(c => c.name === 'virtual_beams_lines');
     assert.ok(virtualLine, 'virtual_beams_lines should be generated for cross-part connection');
+    assert.strictEqual(virtualLine.material.type, 'LineBasicMaterial', 'External connection must use Dash-Dot segments (LineBasicMaterial), distinct from LineDashedMaterial used by support beams');
+
+    // Should create external mount anchor rings for foreign attachment nodes
+    const anchorGroup = group.children.find(c => c.name === 'virtual_mount_anchors');
+    assert.ok(anchorGroup, 'virtual_mount_anchors should exist to visually mark foreign node attachment points');
+    assert.ok(anchorGroup.children.length > 0, 'Anchor group should contain torus ring for foreign attachment node');
 
     // Segments metadata
     const virtualSeg = group.userData.beamSegments.find(s => s.isVirtual);
@@ -117,6 +123,6 @@ export function runVirtualBeamsAndOffsetTests() {
     assert.strictEqual(virtualSeg.externalNodeId, 'frame_f1r');
     assert.strictEqual(virtualSeg.beamType, '|VIRTUAL');
 
-    console.log('✓ Test 3: Cross-part virtual beams to external nodes passed.');
+    console.log('✓ Test 3: Cross-part virtual beams with Dash-Dot lines and external mount anchors passed.');
   }
 }

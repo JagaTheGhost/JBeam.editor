@@ -102,6 +102,23 @@
       margin-left: auto;
     }
 
+    .badge-experimental {
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      padding: 2px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
     .search-box {
       padding: 12px 16px;
       border-bottom: 1px solid var(--bng-gunmetal);
@@ -370,7 +387,7 @@
     <div class="sidebar-header">
       <img src="assets/bng-logo.png" alt="JBeam.editor" class="brand-logo">
       <span class="brand-title">JBeam<span class="brand-ext">.editor</span></span>
-      <span class="version-badge">v0.1Beta</span>
+      <span class="version-badge">v0.2Beta</span>
     </div>
 
     <div class="search-box">
@@ -387,22 +404,24 @@
       <li><a class="nav-item" href="#ast-sync">4. Bidirectional AST Sync</a></li>
 
       <li class="nav-category">3D Physics Viewport</li>
-      <li><a class="nav-item" href="#viewport-3d">5. 3D Structure Viewport</a></li>
-      <li><a class="nav-item" href="#gizmos-manipulation">6. Gizmos & Multi-Move</a></li>
-      <li><a class="nav-item" href="#orientation-gizmo">7. Blender Orientation Gizmo</a></li>
-      <li><a class="nav-item" href="#symmetry-engine">8. Bilateral Symmetry Engine</a></li>
+      <li><a class="nav-item" href="#viewport-3d">5. 3D Structure Viewport & Themes</a></li>
+      <li><a class="nav-item" href="#connected-topology">6. Connected Topology Focus</a></li>
+      <li><a class="nav-item" href="#gizmos-manipulation">7. Gizmos & Multi-Move</a></li>
+      <li><a class="nav-item" href="#orientation-gizmo">8. Blender Orientation Gizmo</a></li>
+      <li><a class="nav-item" href="#symmetry-engine">9. Bilateral Symmetry Engine</a></li>
 
       <li class="nav-category">Modding Tools</li>
-      <li><a class="nav-item" href="#geometry-tools">9. Geometry & Modeling Tools</a></li>
-      <li><a class="nav-item" href="#assembly-slots">10. Multi-Part Assembly & Slots</a></li>
-      <li><a class="nav-item" href="#reference-dae">11. Reference DAE & Blueprints</a></li>
-      <li><a class="nav-item" href="#powertrain">12. Powertrain Visualizer</a></li>
-      <li><a class="nav-item" href="#sim-connection">13. Live Simulation Connection</a></li>
-      <li><a class="nav-item" href="#diagnostics">14. Diagnostics & Validation</a></li>
+      <li><a class="nav-item" href="#geometry-tools">10. Geometry & Modeling Tools</a></li>
+      <li><a class="nav-item" href="#assembly-slots">11. Multi-Part Assembly & Slots</a></li>
+      <li><a class="nav-item" href="#reference-dae">12. Dedicated 3D Meshes (.DAE) Panel</a></li>
+      <li><a class="nav-item" href="#powertrain">13. Mechanical Workspace & Dyno</a></li>
+      <li><a class="nav-item" href="#sim-connection">14. Live Simulation Connection</a></li>
+      <li><a class="nav-item" href="#diagnostics">15. Diagnostics & Validation</a></li>
 
       <li class="nav-category">System & Setup</li>
-      <li><a class="nav-item" href="#installer-updates">15. Installer & Auto-Updates</a></li>
-      <li><a class="nav-item" href="#shortcuts-cheatsheet">16. Shortcuts & Cheat Sheet</a></li>
+      <li><a class="nav-item" href="#installer-updates">16. Installer & Auto-Updates</a></li>
+      <li><a class="nav-item" href="#shortcuts-cheatsheet">17. Shortcuts & Cheat Sheet</a></li>
+      <li><a class="nav-item" href="#release-changelog">18. Release Changelog (v0.2Beta)</a></li>
     </ul>
   </aside>
 
@@ -440,8 +459,15 @@
             <li><strong>3D Focus</strong>: Maximizes the 3D viewport for detailed structural inspection, beam measurement, and node manipulation.</li>
           </ul>
 
-          <h3>Detached Multi-Monitor Viewport</h3>
-          <p>Click the <strong>Detach Viewport</strong> button on the toolbar to pop out the 3D viewport into its own standalone window. You can drag the 3D viewport onto a secondary monitor while keeping your code editor full-screen on your primary monitor. Clicking the <strong>Dock Window</strong> button seamlessly re-attaches the viewport.</p>
+          <h3>Detached Multi-Monitor Viewport (v0.2Beta Enhanced)</h3>
+          <p>Click the <strong>Detach Viewport</strong> button on the toolbar to pop out the 3D viewport into its own standalone window across multi-monitor setups. In v0.2Beta, the detached viewport is completely self-contained:</p>
+          <ul>
+            <li><strong>Built-in Toolbars & Sidebars</strong>: Hosts its own <strong>Assembly Manager</strong>, dedicated <strong>3D Meshes (.DAE) Panel</strong>, and <strong>Element Inspector</strong> directly in the popout window.</li>
+            <li><strong>Smooth Resizable Splitters</strong>: Left and right sidebar panels can be independently resized and collapsed.</li>
+            <li><strong>Seamless Keyboard Sync</strong>: Forwards shortcut keys (<span class="key-badge">F5</span> reload, <span class="key-badge">F12</span> DevTools, <span class="key-badge">Delete</span>, <span class="key-badge">Alt + F</span>, <span class="key-badge">Alt + G</span>) directly to the scene.</li>
+            <li><strong>Fault-Tolerant Error Recovery</strong>: Protected with an automatic error boundary to eliminate blank screens during transient GPU or parsing errors.</li>
+          </ul>
+          <p>Clicking the <strong>Reattach Viewport</strong> button smoothly docks the 3D canvas back into the main IDE layout.</p>
         </div>
       </section>
 
@@ -501,12 +527,38 @@
             <li><strong>Triangles & Quads</strong>: Rendered as semi-transparent surfaces with dual-sided lighting for aerodynamic drag and vehicle collision geometry.</li>
             <li><strong>Node Labels</strong>: Billboard text tags floating above each node, toggleable via the <strong>Labels</strong> button.</li>
           </ul>
+
+          <h3>Viewport Background Themes & Canvas Customization</h3>
+          <p>Customize the 3D canvas tone in the <strong>Overlays</strong> dropdown menu to suit your lighting environment:</p>
+          <ul>
+            <li><strong>Editor Gray (Default, <code>#1e2127</code>)</strong>: Smoothly matches the dark gray charcoal editor theme and surrounding panels.</li>
+            <li><strong>Theme Charcoal (<code>#1a1a1a</code>)</strong>: Pure sidebar and editor background color.</li>
+            <li><strong>CAD Slate (<code>#282c34</code>)</strong>: Neutral medium CAD slate gray for maximum wireframe clarity.</li>
+            <li><strong>Pitch Black (<code>#0d0e11</code>)</strong>: High-contrast OLED dark void.</li>
+          </ul>
+          <p>The ground grid features slate-gray center axes (<code>#5e6878</code>) and subtle secondary lines (<code>#2e3440</code> with 75% opacity) to float cleanly above all background themes without harsh glare.</p>
         </div>
       </section>
 
-      <!-- 6. GIZMOS & MULTI-MOVE -->
+      <!-- 6. CONNECTED TOPOLOGY FOCUS -->
+      <section id="connected-topology">
+        <h2>6. Connected Topology Focus (Neighborhood X-Ray) <span class="badge-experimental">Experimental Testing</span></h2>
+        <p>When engineering complex vehicle frames containing thousands of overlapping beams, identifying a node's structural neighbors can be difficult.</p>
+
+        <div class="feature-card highlight">
+          <h3>Neighborhood X-Ray Capabilities</h3>
+          <ul>
+            <li><strong>Instant Keyboard Shortcut (<span class="key-badge">Alt + F</span>)</strong>: Toggles Connected Topology Focus on or off (or via the <strong>Overlays</strong> dropdown menu).</li>
+            <li><strong>Selective Neighborhood Highlighting</strong>: Selecting any node or cluster keeps directly connected beams and adjacent neighbor nodes fully visible, while gracefully dimming unconnected vehicle geometry.</li>
+            <li><strong>Automatic Billboard Label Decluttering</strong>: When enabled, floating node labels automatically hide for background elements and only display for the selected nodes and their immediate neighbors.</li>
+            <li><strong>Symmetry Integration</strong>: Automatically highlights counterpart connections across mirrored nodes when bilateral symmetry is active.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 7. GIZMOS & MULTI-MOVE -->
       <section id="gizmos-manipulation">
-        <h2>6. Gizmos & Multi-Node Manipulation</h2>
+        <h2>7. Gizmos & Multi-Node Manipulation</h2>
         <p>Precise transform manipulation directly inside the 3D viewport.</p>
 
         <div class="feature-card">
@@ -520,9 +572,9 @@
         </div>
       </section>
 
-      <!-- 7. BLENDER ORIENTATION GIZMO -->
+      <!-- 8. BLENDER ORIENTATION GIZMO -->
       <section id="orientation-gizmo">
-        <h2>7. Blender-Style Orientation Gizmo</h2>
+        <h2>8. Blender-Style Orientation Gizmo</h2>
         <p>Located in the top-right corner of the 3D viewport, this interactive coordinate widget allows instant camera snapping.</p>
 
         <div class="feature-card">
@@ -534,9 +586,9 @@
         </div>
       </section>
 
-      <!-- 8. SYMMETRY ENGINE -->
+      <!-- 9. SYMMETRY ENGINE -->
       <section id="symmetry-engine">
-        <h2>8. Bilateral Symmetry Engine</h2>
+        <h2>9. Bilateral Symmetry Engine</h2>
         <p>BeamNG vehicles rely on strict lateral symmetry across the vehicle centerline ($X=0$).</p>
 
         <div class="feature-card">
@@ -546,13 +598,16 @@
 door_fl <---> door_fr
 susp_arm_l <---> susp_arm_r</code></pre>
           <p>When the <strong>Symmetry</strong> button is enabled on the toolbar, dragging node <code>f1l</code> in 3D automatically updates <code>f1r</code> with mirrored X coordinates ($-X$).</p>
+
+          <h3>PCA Symmetry Plane Detection <span class="badge-experimental">Experimental Testing</span></h3>
+          <p>For custom scratch-built chassis or mods with non-standard naming, click <strong>Analyze PCA Symmetry Planes</strong> in the <strong>Overlays</strong> menu. The engine computes Principal Component Analysis (PCA) eigenvectors across node coordinate clusters to detect the true mathematical mirror plane.</p>
         </div>
       </section>
 
-      <!-- 9. GEOMETRY TOOLS -->
+      <!-- 10. GEOMETRY TOOLS -->
       <section id="geometry-tools">
-        <h2>9. Geometry & Modeling Tools</h2>
-        <p>Rapid modeling operations accessible directly from the toolbar and context menu.</p>
+        <h2>10. Geometry & Modeling Tools</h2>
+        <p>Rapid modeling operations accessible directly from the toolbar, viewport action buttons, and keyboard shortcuts.</p>
 
         <div class="feature-card">
           <table>
@@ -580,9 +635,19 @@ susp_arm_l <---> susp_arm_r</code></pre>
                 <td><span class="key-badge">W</span></td>
               </tr>
               <tr>
-                <td><strong>Flip Surface</strong></td>
-                <td>Inverts the face normal of a selected collision triangle or quad.</td>
-                <td><span class="key-badge">Alt + F</span></td>
+                <td><strong>Delete Element</strong></td>
+                <td>Deletes selected nodes, beams, triangles, or quads and cleanly cascades deletions across source code.</td>
+                <td><span class="key-badge">Delete</span></td>
+              </tr>
+              <tr>
+                <td><strong>Flip Surface Normal</strong></td>
+                <td>Inverts the face winding order and normal vector of a selected collision triangle or quad.</td>
+                <td>—</td>
+              </tr>
+              <tr>
+                <td><strong>Wavefront OBJ Converter <span class="badge-experimental">Experimental Testing</span></strong></td>
+                <td>Converts 3D polygon meshes (.obj) to JBeam nodes/beams with vertex welding and tolerance thresholding.</td>
+                <td>—</td>
               </tr>
               <tr>
                 <td><strong>Prefix Part Nodes</strong></td>
@@ -594,15 +659,15 @@ susp_arm_l <---> susp_arm_r</code></pre>
         </div>
       </section>
 
-      <!-- 10. MULTI-PART ASSEMBLY -->
+      <!-- 11. MULTI-PART ASSEMBLY -->
       <section id="assembly-slots">
-        <h2>10. Multi-Part Assembly & Slot Manager</h2>
+        <h2>11. Multi-Part Assembly & Slot Manager</h2>
         <p>Modern BeamNG vehicles consist of dozens of separate <code>.jbeam</code> files connected through a slot hierarchy.</p>
 
         <div class="feature-card">
           <h3>Capabilities</h3>
           <ul>
-            <li><strong>Variant (.pc) Loader</strong>: Select any vehicle part configuration file to composite all matching chassis, suspension, engine, and body parts into one unified 3D skeleton.</li>
+            <li><strong>Variant (.pc) Loader</strong>: Select any vehicle part configuration file to composite all matching chassis, suspension, engine, and body parts into one unified 3D skeleton. Robust parser handles unquoted keys and comments in legacy files.</li>
             <li><strong>Interactive Slot Swapping</strong>: Change parts using slot dropdown menus (e.g. swap standard cab for a sleeper cab).</li>
             <li><strong>Independent Part Visibility</strong>: Click the eye icon <code>👁️</code> next to any part in the assembly list to hide or isolate specific sections.</li>
             <li><strong>Part Color Coding</strong>: Toggle between coloring by <em>Beam Type</em> and coloring by <em>Vehicle Part</em> to distinguish overlapping sub-assemblies.</li>
@@ -610,36 +675,52 @@ susp_arm_l <---> susp_arm_r</code></pre>
         </div>
       </section>
 
-      <!-- 11. DAE & BLUEPRINTS -->
+      <!-- 12. DEDICATED 3D MESHES PANEL -->
       <section id="reference-dae">
-        <h2>11. Reference DAE & Blueprint Overlays</h2>
-        <p>Align physics skeletons against 3D bodywork and 2D manufacturer technical blueprints.</p>
+        <h2>12. Dedicated 3D Meshes (.DAE) Panel & Multi-Spawn</h2>
+        <p>Align physics skeletons against 3D visual models (.dae) and generate JBeam parts directly from Collada geometry.</p>
 
         <div class="feature-card">
-          <h3>Reference Overlays</h3>
+          <h3>Submesh Explorer & Multi-Mesh Spawning</h3>
           <ul>
-            <li><strong>DAE 3D Mesh Overlay</strong>: Load the vehicle's <code>.dae</code> Collada model. The mesh renders as a translucent guide in the 3D viewport, allowing you to position crash nodes flush with the visual body panels.</li>
-            <li><strong>Blueprint Projections</strong>: Load technical side, front, and top orthographic blueprint images with adjustable scale, opacity, and coordinate offsets.</li>
+            <li><strong>Submesh Checkboxes</strong>: Browse discovered submeshes (e.g. <code>hood</code>, <code>fenders</code>, <code>chassis</code>) with polycount and triangle statistics. Check individual parts to spawn multiple body panels simultaneously.</li>
+            <li><strong>Filter Tabs</strong>: Filter submeshes by <strong>All</strong>, <strong>Spawned</strong>, or <strong>For JBeam</strong>.</li>
+            <li><strong>Spawn All / Despawn All</strong>: 1-click controls to show or hide all submeshes in the 3D viewport.</li>
+            <li><strong>1-Click JBeam Part Generator</strong>: Automatically calculates the composite 3D bounding box for all spawned meshes and creates a new <code>.jbeam</code> part with pre-configured <code>flexbodies</code> bindings and structural bounding cage.</li>
+            <li><strong>Secondary Window Integration</strong>: The dedicated Meshes panel is fully available inside both the main studio window and the detached viewport window.</li>
           </ul>
         </div>
       </section>
 
-      <!-- 12. POWERTRAIN -->
+      <!-- 13. MECHANICAL WORKSPACE -->
       <section id="powertrain">
-        <h2>12. Powertrain Visualizer</h2>
-        <p>Inspect and validate the mechanical torque flow of the vehicle.</p>
+        <h2>13. Mechanical Workspace & Powertrain Studio <span class="badge-experimental">Experimental Testing</span></h2>
+        <p>A comprehensive mechanical analysis and vehicle dynamics suite for BeamNG powertrains, steering racks, and engine dynamics.</p>
 
-        <div class="feature-card">
-          <h3>Interactive Component Graph</h3>
-          <p>Automatically scans the <code>powertrain</code> section in the vehicle JBeam and generates an interactive flow graph:</p>
-          <pre><code>[mainEngine] ---> [clutch] ---> [gearbox] ---> [transfercase] ---> [frontDiff / rearDiff] ---> [wheels]</code></pre>
-          <p>Hover over components to view gear ratios, differential bias ratios, and drive shaft connections.</p>
+        <div class="feature-card highlight">
+          <h3>Dyno & Torque Curves <span class="badge-experimental">Experimental Testing</span></h3>
+          <ul>
+            <li><strong>Interactive RPM Scrubbing</strong>: Real-time horsepower and torque curve graphs with peak power/torque readouts at specific RPMs.</li>
+            <li><strong>Gearing & Sawtooth Calculator</strong>: Calculates wheel speeds and transmission gear shifts based on tire radius, gear ratios, and final drive.</li>
+          </ul>
+
+          <h3>Ackermann Steering Kinematics Simulator <span class="badge-experimental">Experimental Testing</span></h3>
+          <ul>
+            <li><strong>Lock-to-Lock Angle Simulator</strong>: Interactive slider visualizing inside vs outside wheel steering angle divergence in real-time.</li>
+            <li><strong>Steering Rack Hydro Analysis</strong>: Automatically extracts steering hydro beams and calculates rack travel limits and extension rates.</li>
+          </ul>
+
+          <h3>Device Architecture Tree & 3D Navigation</h3>
+          <ul>
+            <li><strong>Device Hierarchy</strong>: Scans engines, clutches, automatic/manual gearboxes, transfer cases, differentials, shafts, halfshafts, mounts, and fuel storage.</li>
+            <li><strong>Focus 3D & Jump to Code</strong>: Instantly centers the 3D viewport on bound device nodes or jumps directly to device definitions in Monaco source code.</li>
+          </ul>
         </div>
       </section>
 
-      <!-- 13. SIM CONNECTION -->
+      <!-- 14. SIM CONNECTION -->
       <section id="sim-connection">
-        <h2>13. Live Simulation Connection</h2>
+        <h2>14. Live Simulation Connection</h2>
         <p>Connect JBeam.editor directly to a running instance of <strong>BeamNG.drive</strong> via a real-time socket bridge.</p>
 
         <div class="feature-card highlight">
@@ -652,9 +733,9 @@ susp_arm_l <---> susp_arm_r</code></pre>
         </div>
       </section>
 
-      <!-- 14. DIAGNOSTICS -->
+      <!-- 15. DIAGNOSTICS -->
       <section id="diagnostics">
-        <h2>14. Diagnostics & Problems Panel</h2>
+        <h2>15. Diagnostics & Problems Panel</h2>
         <p>Catches common syntax errors, broken references, and geometry bugs before you test in-game.</p>
 
         <div class="feature-card">
@@ -669,9 +750,9 @@ susp_arm_l <---> susp_arm_r</code></pre>
         </div>
       </section>
 
-      <!-- 15. INSTALLER & AUTO-UPDATES -->
+      <!-- 16. INSTALLER & AUTO-UPDATES -->
       <section id="installer-updates">
-        <h2>15. Installer & Auto-Updates</h2>
+        <h2>16. Installer & Auto-Updates</h2>
         <p>Packaging and continuous update mechanisms for JBeam.editor.</p>
 
         <div class="feature-card">
@@ -688,9 +769,9 @@ susp_arm_l <---> susp_arm_r</code></pre>
         </div>
       </section>
 
-      <!-- 16. SHORTCUTS CHEAT SHEET -->
+      <!-- 17. SHORTCUTS CHEAT SHEET -->
       <section id="shortcuts-cheatsheet">
-        <h2>16. Shortcuts & Cheat Sheet</h2>
+        <h2>17. Shortcuts & Cheat Sheet</h2>
         
         <div class="feature-card">
           <table>
@@ -718,8 +799,18 @@ susp_arm_l <---> susp_arm_r</code></pre>
                 <td>Sim Connected</td>
               </tr>
               <tr>
+                <td>Connected Topology Focus (X-Ray)</td>
+                <td><span class="key-badge">Alt + F</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
                 <td>Reset Gizmo Offset</td>
                 <td><span class="key-badge">Alt + G</span></td>
+                <td>3D Viewport</td>
+              </tr>
+              <tr>
+                <td>Delete Selected Element(s)</td>
+                <td><span class="key-badge">Delete</span></td>
                 <td>3D Viewport</td>
               </tr>
               <tr>
@@ -755,25 +846,42 @@ susp_arm_l <---> susp_arm_r</code></pre>
               <tr>
                 <td>Extrude Selected Nodes</td>
                 <td><span class="key-badge">E</span></td>
-                <td>3D Viewport</td>
+                <td>3D Viewport (Node Selected)</td>
               </tr>
               <tr>
                 <td>Quick-Connect Beams</td>
                 <td><span class="key-badge">F</span></td>
-                <td>3D Viewport</td>
+                <td>3D Viewport (2+ Nodes Selected)</td>
               </tr>
               <tr>
                 <td>Subdivide Selected Beam</td>
                 <td><span class="key-badge">W</span></td>
-                <td>3D Viewport</td>
-              </tr>
-              <tr>
-                <td>Flip Triangle / Quad Normal</td>
-                <td><span class="key-badge">Alt + F</span></td>
-                <td>3D Viewport</td>
+                <td>3D Viewport (Beam Selected)</td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- 18. RELEASE CHANGELOG -->
+      <section id="release-changelog">
+        <h2>18. Release Changelog</h2>
+        <div class="feature-card highlight">
+          <h3>Version v0.2Beta (Current)</h3>
+          <ul>
+            <li><strong>Mechanical Workspace & Powertrain Studio <span class="badge-experimental">Experimental</span></strong>: Interactive Dyno torque/horsepower curves, gearing & sawtooth simulator, lock-to-lock Ackermann steering simulator, 3D device centering, and Monaco jump-to-code navigation.</li>
+            <li><strong>Connected Topology Focus (Neighborhood X-Ray) <span class="badge-experimental">Experimental</span></strong>: <kbd>Alt + F</kbd> neighborhood isolation that dims background geometry and declutters billboard node labels.</li>
+            <li><strong>Dedicated 3D Meshes (.DAE) Panel</strong>: Submesh explorer with multi-mesh spawning and 1-click JBeam part generation with flexbody bindings.</li>
+            <li><strong>Detached Viewport Multi-Monitor Studio</strong>: Independent secondary window hosting its own Assembly, Meshes, and Inspector panels with resizable splitters and keyboard event forwarding.</li>
+            <li><strong>Theme-Matched Viewport Canvas</strong>: Replaced black void with Editor Gray (<code>#1e2127</code>), Charcoal (<code>#1a1a1a</code>), CAD Slate (<code>#282c34</code>), and Pitch Black (<code>#0d0e11</code>) + neutral ground grid.</li>
+            <li><strong>Early Beta Safety Caution Notice</strong>: Startup and workspace-open notice advising modders to backup working files, with suppression option.</li>
+            <li><strong>Bug Fixes & Streamlining</strong>: Removed duplicate delete button, streamlined extrude tool, fixed PC file parsing for unquoted keys, and enhanced element inspector synchronization.</li>
+          </ul>
+
+          <h3 style="margin-top: 18px;">Version v0.1Beta</h3>
+          <ul>
+            <li>Initial public beta release with bidirectional AST synchronization, WebGL physics viewport, symmetry engine, multi-part assembly viewer, blueprints tracing, and live simulation socket connection.</li>
+          </ul>
         </div>
       </section>
 
@@ -822,3 +930,4 @@ susp_arm_l <---> susp_arm_r</code></pre>
   </script>
 </body>
 </html>
+

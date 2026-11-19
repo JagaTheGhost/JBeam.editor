@@ -173,7 +173,15 @@ export function extractPartsFromJBeamText(text, filePath) {
 export function parseVehicleConfiguration(text, filePath) {
   if (!text || typeof text !== 'string') return null;
   try {
-    const pc = JSON.parse(text);
+    let pc = null;
+    try {
+      pc = JSON.parse(text);
+    } catch {
+      // BeamNG .pc files frequently contain comments, trailing commas, or SJSON loose syntax
+      const decoded = decodeWithMeta(text, filePath, false);
+      pc = decoded?.data;
+    }
+    if (!pc || typeof pc !== 'object') return null;
     return {
       fileName: filePath.split(/[\\/]/).pop(),
       filePath,

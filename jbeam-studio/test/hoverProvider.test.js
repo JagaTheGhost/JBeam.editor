@@ -17,8 +17,10 @@ import {
 import {
   resolveContextAtPosition,
   resolveHoveredJBeamElement,
+  resolveElementsInLineRange,
   provideJBeamHover
 } from '../src/features/jbeam/hoverProvider.js';
+import { buildCodeHoverGroup } from '../src/features/viewport/visualizers.js';
 
 export function runHoverProviderTests() {
   console.log('--- Running Hover Documentation & Breadcrumbs Tests (from VS Code) ---');
@@ -223,6 +225,103 @@ export function runHoverProviderTests() {
     assert.deepStrictEqual(quadEl.nodes, ['f1r', 'f1l', 'f2l', 'f2r']);
 
     console.log('✓ Test 5: Code hover element resolution (nodes/beams/triangles/quads) verified.');
+  }
+
+  // Test 6: Multi-line Code Selection Resolution & 3D Highlighting
+  {
+    const fixtureLines = [
+      '{',
+      '  "vehicle_frame": {',
+      '    "nodes": [',
+      '      ["id:", "posX", "posY", "posZ"],',
+      '      ["n1l", 0.5, 1.2, 0.3],',
+      '      ["n1r", -0.5, 1.2, 0.3],',
+      '      ["n2l", 0.5, 2.0, 0.3],',
+      '      ["n2r", -0.5, 2.0, 0.3],',
+      '      ["n3l", 0.5, 2.8, 0.3],',
+      '      ["n3r", -0.5, 2.8, 0.3]',
+      '    ],',
+      '    "beams": [',
+      '      ["id1:", "id2:"],',
+      '      {"beamSpring": 2001000, "beamDamp": 200},',
+      '      ["n1r", "n1l"],',
+      '      {"beamSpring": 2001000, "beamDamp": 200},',
+      '      ["n1l", "n2r"],',
+      '      {"beamSpring": 2001000, "beamDamp": 200},',
+      '      ["n2r", "n3l"],',
+      '      {"beamSpring": 2001000, "beamDamp": 200},',
+      '      ["n1r", "n2l"]',
+      '    ],',
+      '    "triangles": [',
+      '      ["id1:", "id2:", "id3:"],',
+      '      ["n1l", "n2r", "n2l"],', // Line 25: Triangle 1 (from user screenshot)
+      '      ["n1l", "n2r", "n1r"]',  // Line 26: Triangle 2 (from user screenshot)
+      '    ],',
+      '    "quads": [',
+      '      ["id1:", "id2:", "id3:", "id4:"],',
+      '      ["n2l", "n3l", "n3r", "n2r"]', // Line 30: Quad 1 (from user screenshot)
+      '    ]',
+      '  }',
+      '}'
+    ];
+
+    const mockModel = {
+      getLineContent: (lineNum) => fixtureLines[lineNum - 1] || ''
+    };
+
+    // 6a. Select multiple triangle lines (Lines 25 to 26 - exact match of user screenshot)
+    const triSelection = resolveElementsInLineRange(mockModel, 25, 26, null);
+    assert.ok(triSelection, 'resolveElementsInLineRange must return selection object');
+    assert.strictEqual(triSelection.triangles.length, 2, 'Should resolve both selected triangles');
+    assert.deepStrictEqual(triSelection.triangles[0].nodes, ['n1l', 'n2r', 'n2l']);
+    assert.deepStrictEqual(triSelection.triangles[1].nodes, ['n1l', 'n2r', 'n1r']);
+    assert.strictEqual(triSelection.quads.length, 0);
+    assert.strictEqual(triSelection.beams.length, 0);
+    assert.strictEqual(triSelection.nodes.length, 0);
+
+    // 6b. Select quads line (Line 30)
+    const quadSelection = resolveElementsInLineRange(mockModel, 30, 30, null);
+    assert.ok(quadSelection);
+    assert.strictEqual(quadSelection.quads.length, 1);
+    assert.deepStrictEqual(quadSelection.quads[0].nodes, ['n2l', 'n3l', 'n3r', 'n2r']);
+
+    // 6c. Select multiple nodes lines (Lines 5 to 8)
+    const nodeSelection = resolveElementsInLineRange(mockModel, 5, 8, null);
+    assert.ok(nodeSelection);
+    assert.strictEqual(nodeSelection.nodes.length, 4);
+    assert.deepStrictEqual(nodeSelection.nodes.map(n => n.id), ['n1l', 'n1r', 'n2l', 'n2r']);
+
+    // 6d. Select multiple beam lines with interspersed options objects (Lines 14 to 21)
+    const beamSelection = resolveElementsInLineRange(mockModel, 14, 21, null);
+    assert.ok(beamSelection);
+    assert.strictEqual(beamSelection.beams.length, 4, 'Should cleanly extract the 4 beams while ignoring options objects');
+    assert.strictEqual(beamSelection.beams[0].id1, 'n1r');
+    assert.strictEqual(beamSelection.beams[0].id2, 'n1l');
+
+    // 6e. Verify 3D Viewport Group construction for multi-line triangle selection
+    const testNodesDict = {
+      n1l: { posX: 0.5, posY: 1.2, posZ: 0.3 },
+      n1r: { posX: -0.5, posY: 1.2, posZ: 0.3 },
+      n2l: { posX: 0.5, posY: 2.0, posZ: 0.3 },
+      n2r: { posX: -0.5, posY: 2.0, posZ: 0.3 },
+      n3l: { posX: 0.5, posY: 2.8, posZ: 0.3 },
+      n3r: { posX: -0.5, posY: 2.8, posZ: 0.3 }
+    };
+
+    const multiTriGroup = buildCodeHoverGroup({ selected: triSelection }, testNodesDict);
+    assert.strictEqual(multiTriGroup.children.length, 2, 'Should create 1 surface mesh and 1 outline LineSegments for multi-tri selection');
+
+    // The surface mesh should have 2 triangles * 3 vertices = 6 vertices (18 float values)
+    const surfaceMesh = multiTriGroup.children.find(c => c.isMesh);
+    assert.ok(surfaceMesh, 'Surface mesh must exist');
+    assert.strictEqual(surfaceMesh.geometry.attributes.position.count, 6, '6 vertices for 2 selected triangles');
+
+    // The edge lines should have 2 triangles * 3 edges * 2 points = 12 vertices
+    const edgeLines = multiTriGroup.children.find(c => c.isLineSegments);
+    assert.ok(edgeLines, 'Edge lines segments must exist');
+    assert.strictEqual(edgeLines.geometry.attributes.position.count, 12, '12 edge points for 2 selected triangles');
+
+    console.log('✓ Test 6: Multi-line Code Selection Resolution & 3D Highlighting verified.');
   }
 
   console.log('All Hover Documentation & Breadcrumbs tests passed!\n');

@@ -4,11 +4,14 @@ import JBeamViewport from './JBeamViewport.jsx';
 import { StructureTree } from '../explorer/StructureTree.jsx';
 import { ElementInspector } from '../inspector/ElementInspector.jsx';
 import { AssemblyManager } from '../assembly/AssemblyManager.jsx';
+import { DaeMeshPanel } from '../meshes/DaeMeshPanel.jsx';
+import ErrorBoundary from '../../components/ErrorBoundary.jsx';
 import {
   RestoreIcon,
   StructureIcon,
   InspectorIcon,
   AssemblyIcon,
+  CubeIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DockIcon,
@@ -30,6 +33,12 @@ export function DetachedViewportApp() {
   const [liveCoords, setLiveCoords] = useState(null);
 
   // Visual Mesh Overlay (.dae)
+  const [workspacePath, setWorkspacePath] = useState('');
+  const [discoveredDaeFiles, setDiscoveredDaeFiles] = useState([]);
+  const [selectedDaePath, setSelectedDaePath] = useState('');
+  const [spawnedMeshNames, setSpawnedMeshNames] = useState(new Set());
+  const [meshOpacity, setMeshOpacity] = useState(0.45);
+  const [meshWireframe, setMeshWireframe] = useState(false);
   const [visualMeshDaeText, setVisualMeshDaeText] = useState(null);
   const [visualMeshName, setVisualMeshName] = useState(null);
   const [visualMeshSubnames, setVisualMeshSubnames] = useState([]);
@@ -46,11 +55,18 @@ export function DetachedViewportApp() {
   const [rootParts, setRootParts] = useState([]);
   const [activeRootPart, setActiveRootPart] = useState(null);
 
-  // Sidebar Layout
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(360);
-  const [isResizing, setIsResizing] = useState(false);
-  const [activeSidebarTab, setActiveSidebarTab] = useState('structure'); // 'structure' | 'inspector' | 'assembly'
+  // Dual Sidebar Layout (Proper 3D Studio Separation)
+  // Left: Scene Hierarchy & Models (Assembly & Meshes)
+  // Right: Inspection & Structure Details (Inspector & Structure)
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(360);
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [activeLeftTab, setActiveLeftTab] = useState('assembly'); // 'assembly' | 'meshes'
+
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(340);
+  const [isResizingRight, setIsResizingRight] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState('inspector'); // 'inspector' | 'structure'
 
   const channelRef = useRef(null);
 
@@ -65,7 +81,7 @@ export function DetachedViewportApp() {
     } catch (e) {}
   }, []);
 
-  // Set document title & detached favicon (distinguishing from main window)
+  // Set document title & detached favicon
   useEffect(() => {
     document.title = activeTabTitle ? `3D Viewport — ${activeTabTitle}` : 'JBeam.editor — 3D Viewport';
     try {
@@ -115,6 +131,14 @@ export function DetachedViewportApp() {
           if (data.isolateMatchingMesh !== undefined) setIsolateMatchingMesh(data.isolateMatchingMesh);
           if (data.highlightedSubmesh !== undefined) setHighlightedSubmesh(data.highlightedSubmesh);
           if (data.viewportSource !== undefined) setViewportSource(data.viewportSource);
+          if (data.workspacePath !== undefined) setWorkspacePath(data.workspacePath);
+          if (data.discoveredDaeFiles !== undefined) setDiscoveredDaeFiles(data.discoveredDaeFiles);
+          if (data.selectedDaePath !== undefined) setSelectedDaePath(data.selectedDaePath);
+          if (data.spawnedMeshNames !== undefined) {
+            setSpawnedMeshNames(new Set(Array.isArray(data.spawnedMeshNames) ? data.spawnedMeshNames : Array.from(data.spawnedMeshNames || [])));
+          }
+          if (data.meshOpacity !== undefined) setMeshOpacity(data.meshOpacity);
+          if (data.meshWireframe !== undefined) setMeshWireframe(data.meshWireframe);
           break;
 
         case 'SET_VIEWPORT_SOURCE':
@@ -125,6 +149,12 @@ export function DetachedViewportApp() {
           if (data.selectedNodeId !== undefined) setSelectedNodeId(data.selectedNodeId);
           if (data.selectedBeamInfo !== undefined) setSelectedBeamInfo(data.selectedBeamInfo);
           if (data.selectedSurfaceInfo !== undefined) setSelectedSurfaceInfo(data.selectedSurfaceInfo);
+          break;
+
+        case 'SET_SPAWNED_MESH_NAMES':
+          if (data.spawnedMeshNames !== undefined) {
+            setSpawnedMeshNames(new Set(Array.isArray(data.spawnedMeshNames) ? data.spawnedMeshNames : Array.from(data.spawnedMeshNames || [])));
+          }
           break;
 
         case 'REATTACH':
@@ -280,27 +310,64 @@ export function DetachedViewportApp() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [sendMessage]);
 
-  // Sidebar Drag Resizing
-  const handleStartResize = useCallback((startEvent) => {
+  // Left Sidebar Drag Resizing
+  const handleStartResizeLeft = useCallback((startEvent) => {
     startEvent.preventDefault();
-    setIsResizing(true);
+    setIsResizingLeft(true);
     const startX = startEvent.clientX;
-    const startW = sidebarWidth;
+    const startW = leftSidebarWidth;
 
     const onPointerMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX;
-      setSidebarWidth(Math.max(200, Math.min(800, startW + delta)));
+      setLeftSidebarWidth(Math.max(220, Math.min(650, startW + delta)));
     };
 
     const onPointerUp = () => {
-      setIsResizing(false);
+      setIsResizingLeft(false);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
     };
 
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
-  }, [sidebarWidth]);
+  }, [leftSidebarWidth]);
+
+  // Right Sidebar Drag Resizing
+  const handleStartResizeRight = useCallback((startEvent) => {
+    startEvent.preventDefault();
+    setIsResizingRight(true);
+    const startX = startEvent.clientX;
+    const startW = rightSidebarWidth;
+
+    const onPointerMove = (moveEvent) => {
+      const delta = startX - moveEvent.clientX;
+      setRightSidebarWidth(Math.max(240, Math.min(650, startW + delta)));
+    };
+
+    const onPointerUp = () => {
+      setIsResizingRight(false);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  }, [rightSidebarWidth]);
+
+  // Left Tab Switching with automatic Assembly source switch
+  const handleSwitchLeftTab = useCallback((targetTab) => {
+    setActiveLeftTab(prevTab => {
+      if (prevTab === targetTab) return prevTab;
+      return targetTab;
+    });
+    if (targetTab === 'assembly') {
+      setViewportSource('assembly');
+      sendMessage({ type: 'SET_VIEWPORT_SOURCE', viewportSource: 'assembly' });
+    } else {
+      setViewportSource('activeDocument');
+      sendMessage({ type: 'SET_VIEWPORT_SOURCE', viewportSource: 'activeDocument' });
+    }
+  }, [sendMessage]);
 
   // Flexbody Mesh Isolation Toggle
   const handleToggleIsolateMesh = useCallback(() => {
@@ -390,7 +457,7 @@ export function DetachedViewportApp() {
     sendMessage({ type: 'REDO' });
   }, [sendMessage]);
 
-  // DAE loader inside detached inspector
+  // DAE Loader & Mesh Panel Actions
   const handleOpenDaeDialog = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -403,6 +470,7 @@ export function DetachedViewportApp() {
           const text = event.target.result;
           setVisualMeshDaeText(text);
           setVisualMeshName(file.name);
+          setSelectedDaePath(file.name);
           sendMessage({ type: 'LOAD_DAE', daeText: text, fileName: file.name });
         };
         reader.readAsText(file);
@@ -416,7 +484,100 @@ export function DetachedViewportApp() {
     setVisualMeshName(null);
     setVisualMeshSubnames([]);
     setVisualMeshSubmeshDetails({});
+    setSpawnedMeshNames(new Set());
+    setSelectedDaePath('__none__');
     sendMessage({ type: 'UNLOAD_DAE' });
+  }, [sendMessage]);
+
+  const handleLoadDaeContent = useCallback((content, name, fullPath) => {
+    setVisualMeshDaeText(content);
+    setVisualMeshName(name);
+    setSelectedDaePath(fullPath || name);
+    sendMessage({ type: 'LOAD_DAE_CONTENT', content, name, fullPath });
+  }, [sendMessage]);
+
+  const handleUpdateSubmeshNames = useCallback((names) => {
+    setVisualMeshSubnames(names);
+    setSpawnedMeshNames(prev => {
+      // If no submeshes currently spawned or if count changed, default to spawning all
+      if (!prev || prev.size === 0 || (names && names.length > 0 && prev.size !== names.length)) {
+        return new Set(names);
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleSelectDiscoveredDae = useCallback(async (daePath) => {
+    if (!daePath || daePath === '__none__') {
+      setSelectedDaePath('__none__');
+      handleUnloadDae();
+      return;
+    }
+    setSelectedDaePath(daePath);
+    sendMessage({ type: 'SELECT_DISCOVERED_DAE', daePath });
+
+    try {
+      const fileName = daePath.split(/[\\/]/).pop();
+      const matched = (discoveredDaeFiles || []).find(d => d.path === daePath || d.name === daePath || d.name === fileName);
+      if (matched?.content) {
+        handleLoadDaeContent(matched.content, fileName, daePath);
+        return;
+      }
+      const targetPath = matched?.path || daePath;
+      if (window.jbeamAPI?.readFile) {
+        const res = await window.jbeamAPI.readFile(targetPath);
+        if (res && res.success && res.content) {
+          handleLoadDaeContent(res.content, fileName, targetPath);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load selected DAE in detached window:', err);
+    }
+  }, [discoveredDaeFiles, handleLoadDaeContent, handleUnloadDae, sendMessage]);
+
+  const handleUploadDaeFile = useCallback((fileObj) => {
+    sendMessage({ type: 'UPLOAD_DAE_FILE', fileObj });
+  }, [sendMessage]);
+
+  const handleToggleSpawnMesh = useCallback((meshName) => {
+    setSpawnedMeshNames(prev => {
+      const next = new Set(prev);
+      if (next.has(meshName)) next.delete(meshName);
+      else next.add(meshName);
+      sendMessage({ type: 'TOGGLE_SPAWN_MESH', meshName, spawnedMeshNames: Array.from(next) });
+      return next;
+    });
+  }, [sendMessage]);
+
+  const handleSpawnAllMeshes = useCallback(() => {
+    const all = new Set(visualMeshSubnames);
+    setSpawnedMeshNames(all);
+    sendMessage({ type: 'SPAWN_ALL_MESHES', spawnedMeshNames: Array.from(all) });
+  }, [visualMeshSubnames, sendMessage]);
+
+  const handleDespawnAllMeshes = useCallback(() => {
+    setSpawnedMeshNames(new Set());
+    sendMessage({ type: 'DESPAWN_ALL_MESHES', spawnedMeshNames: [] });
+  }, [sendMessage]);
+
+  const handleSetMeshOpacity = useCallback((opacity) => {
+    setMeshOpacity(opacity);
+    sendMessage({ type: 'SET_MESH_OPACITY', opacity });
+  }, [sendMessage]);
+
+  const handleSetMeshWireframe = useCallback((wireframe) => {
+    setMeshWireframe(wireframe);
+    sendMessage({ type: 'SET_MESH_WIREFRAME', wireframe });
+  }, [sendMessage]);
+
+  const handleCreateJBeamForMesh = useCallback(async ({ fileName, content, targetMesh, targetMeshes }) => {
+    sendMessage({ type: 'CREATE_JBEAM_FOR_MESH', fileName, content, targetMesh, targetMeshes });
+    const meshesToAdd = (targetMeshes && targetMeshes.length > 0)
+      ? targetMeshes
+      : (targetMesh ? [targetMesh] : []);
+    if (meshesToAdd.length > 0) {
+      setSpawnedMeshNames(prev => new Set([...prev, ...meshesToAdd]));
+    }
   }, [sendMessage]);
 
   // Calculate stats for assembly / inspector
@@ -516,53 +677,44 @@ export function DetachedViewportApp() {
         </div>
       </header>
 
-      {/* Main Detached Workspace Body */}
-      <div className="detached-workspace-body">
-        {/* Left Sidebar: Structure, Inspector, Assembly with Smooth Ease-Out Transition */}
+      {/* Main Detached Workspace Body with Dual Sidebar Layout */}
+      <div className={`detached-workspace-body ${isResizingLeft || isResizingRight ? 'is-resizing' : ''}`}>
+        {/* Left Sidebar: Scene Hierarchy & Visual Models (Assembly & Meshes) */}
         <aside
-          className={`left-sidebar detached-3d-sidebar ${sidebarOpen ? 'is-expanded' : 'is-collapsed'} ${isResizing ? 'is-resizing' : ''}`}
-          style={{ width: sidebarOpen ? `${sidebarWidth}px` : '46px' }}
+          className={`left-sidebar ${leftSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
+          style={{ width: leftSidebarOpen ? `${leftSidebarWidth}px` : '46px' }}
         >
-          {/* Full Expanded Sidebar Content */}
+          {/* Expanded Pane */}
           <div
             className="sidebar-pane-expanded"
-            style={{ width: `${sidebarWidth}px` }}
-            aria-hidden={!sidebarOpen}
+            style={{ width: `${leftSidebarWidth}px` }}
+            aria-hidden={!leftSidebarOpen}
           >
             <div className="sidebar-tabs-bar">
               <div className="sidebar-tabs">
                 <button
                   type="button"
-                  onClick={() => setActiveSidebarTab('structure')}
-                  className={`sidebar-tab-btn ${activeSidebarTab === 'structure' ? 'active' : ''}`}
-                  title="Structure Tree (Nodes, Beams, Triangles)"
-                >
-                  <StructureIcon size={17} />
-                  <span>Structure</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSidebarTab('inspector')}
-                  className={`sidebar-tab-btn ${activeSidebarTab === 'inspector' ? 'active' : ''}`}
-                  title="Element Inspector & DAE Mesh"
-                >
-                  <InspectorIcon size={17} />
-                  <span>Inspector</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveSidebarTab('assembly')}
-                  className={`sidebar-tab-btn ${activeSidebarTab === 'assembly' ? 'active' : ''}`}
-                  title="Vehicle Assembly & Part Visibility"
+                  onClick={() => handleSwitchLeftTab('assembly')}
+                  className={`sidebar-tab-btn ${activeLeftTab === 'assembly' ? 'active' : ''}`}
+                  title="Vehicle Assembly & Slots"
                 >
                   <AssemblyIcon size={17} />
                   <span>Assembly</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchLeftTab('meshes')}
+                  className={`sidebar-tab-btn ${activeLeftTab === 'meshes' ? 'active' : ''}`}
+                  title="3D Models & DAE Submeshes"
+                >
+                  <CubeIcon size={17} />
+                  <span>Meshes</span>
                 </button>
               </div>
               <button
                 type="button"
                 className="sidebar-toggle-close-btn"
-                onClick={() => setSidebarOpen(false)}
+                onClick={() => setLeftSidebarOpen(false)}
                 title="Collapse Left Sidebar"
               >
                 <ChevronLeftIcon size={15} />
@@ -570,17 +722,228 @@ export function DetachedViewportApp() {
             </div>
 
             <div className="sidebar-content">
-              {activeSidebarTab === 'structure' && (
-                <StructureTree
-                  jbeamParts={jbeamParts}
-                  selectedNodeId={selectedNodeId}
-                  selectedBeamKey={selectedBeamInfo?.beamKey}
-                  onSelectNode={handleSelectNode}
-                  onSelectBeam={handleSelectBeam}
-                  onRenameNode={handleRenameNode}
+              {activeLeftTab === 'assembly' && (
+                <AssemblyManager
+                  configurations={configurations}
+                  activeConfigName={activeConfigName}
+                  onSelectConfiguration={handleSelectConfig}
+                  rootParts={rootParts}
+                  activeRootPart={activeRootPart}
+                  onRootPartChange={handleSelectRootPart}
+                  onSelectPartForSlot={handleSelectSlotPart}
+                  assemblyTree={assemblyTree}
+                  partVisibility={partVisibility}
+                  onTogglePartVisibility={handleTogglePartVisibility}
+                  onToggleAllVisibility={handleToggleAllVisibility}
+                  totalAssembledStats={{
+                    parts: compositeVehicleParts ? Object.keys(compositeVehicleParts).length : (jbeamParts ? Object.keys(jbeamParts).filter(k => k !== '__meta').length : 0),
+                    nodes: nodeCount,
+                    beams: beamCount
+                  }}
                 />
               )}
-              {activeSidebarTab === 'inspector' && (
+              {activeLeftTab === 'meshes' && (
+                <DaeMeshPanel
+                  workspacePath={workspacePath}
+                  discoveredDaeFiles={discoveredDaeFiles}
+                  selectedDaePath={selectedDaePath}
+                  onSelectDaePath={handleSelectDiscoveredDae}
+                  onLoadDaeContent={handleLoadDaeContent}
+                  onUploadDaeFile={handleUploadDaeFile}
+                  onOpenDaeDialog={handleOpenDaeDialog}
+                  visualMeshName={visualMeshName}
+                  visualMeshSubnames={visualMeshSubnames}
+                  visualMeshSubmeshDetails={visualMeshSubmeshDetails}
+                  spawnedMeshNames={spawnedMeshNames}
+                  onToggleSpawnMesh={handleToggleSpawnMesh}
+                  onSpawnAll={handleSpawnAllMeshes}
+                  onDespawnAll={handleDespawnAllMeshes}
+                  meshOpacity={meshOpacity}
+                  onMeshOpacityChange={handleSetMeshOpacity}
+                  meshWireframe={meshWireframe}
+                  onMeshWireframeChange={handleSetMeshWireframe}
+                  onCreateJBeamForMesh={handleCreateJBeamForMesh}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Collapsed Activity Strip */}
+          <div
+            className="collapsed-sidebar-strip left-collapsed-strip"
+            title="Left Sidebar"
+            aria-hidden={leftSidebarOpen}
+          >
+            <div className="collapsed-strip-items">
+              <button
+                type="button"
+                className={`collapsed-tab-btn ${activeLeftTab === 'assembly' ? 'active' : ''}`}
+                onClick={() => {
+                  handleSwitchLeftTab('assembly');
+                  setLeftSidebarOpen(true);
+                }}
+                title="Vehicle Assembly & Slots"
+                aria-label="Vehicle Assembly"
+              >
+                <AssemblyIcon size={18} />
+              </button>
+              <button
+                type="button"
+                className={`collapsed-tab-btn ${activeLeftTab === 'meshes' ? 'active' : ''}`}
+                onClick={() => {
+                  handleSwitchLeftTab('meshes');
+                  setLeftSidebarOpen(true);
+                }}
+                title="3D Models & DAE Submeshes"
+                aria-label="3D Meshes"
+              >
+                <CubeIcon size={18} />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="collapsed-strip-expand-btn"
+              onClick={() => setLeftSidebarOpen(true)}
+              title="Expand Left Sidebar"
+              aria-label="Expand Left Sidebar"
+            >
+              <ChevronRightIcon size={14} />
+            </button>
+          </div>
+        </aside>
+
+        {/* Resizer Handle between Left Sidebar and Viewport */}
+        {leftSidebarOpen && (
+          <div
+            className="resizer-col left-resizer is-open"
+            onPointerDown={handleStartResizeLeft}
+            title="Drag to resize left sidebar"
+          />
+        )}
+
+        {/* Center 3D Viewport */}
+        <main className="center-workspace" style={{ flex: 1, position: 'relative' }}>
+          <ErrorBoundary title="3D Viewport Scene Error">
+            <JBeamViewport
+              jbeamParts={jbeamParts}
+              compositeVehicleParts={compositeVehicleParts}
+              selectedNodeId={selectedNodeId}
+              selectedBeamKey={selectedBeamInfo?.beamKey}
+              selectedBeamInfo={selectedBeamInfo}
+              selectedSurfaceInfo={selectedSurfaceInfo}
+              onSelectNode={handleSelectNode}
+              onSelectBeam={handleSelectBeam}
+              onSelectSurface={handleSelectSurface}
+              onNodeMoved={handleCommitNodeMove}
+              onLiveNodeMove={handleLiveNodeMove}
+              symmetryEnabled={symmetryEnabled}
+              onToggleSymmetry={() => {
+                setSymmetryEnabled(prev => {
+                  const next = !prev;
+                  sendMessage({ type: 'TOGGLE_SYMMETRY', symmetryEnabled: next });
+                  return next;
+                });
+              }}
+              activeTool={activeTool}
+              onToolChange={(tool) => {
+                setActiveTool(tool);
+                sendMessage({ type: 'SET_ACTIVE_TOOL', tool });
+              }}
+              onAddNode={handleAddNode}
+              onAddBeam={handleAddBeam}
+              onAddTriangle={handleAddTriangle}
+              onAddQuad={handleAddQuad}
+              onSubdivideBeam={handleSubdivideBeam}
+              onQuickConnect={handleQuickConnect}
+              onExtrudeNodes={handleExtrudeNodes}
+              onDeleteSelected={handleDeleteSelected}
+              onChangeBeamType={handleChangeBeamType}
+              onBatchRenameNode={handleBatchRenameNode}
+              visualMeshDaeText={visualMeshDaeText}
+              visualMeshName={visualMeshName}
+              onLoadVisualMesh={handleLoadDaeContent}
+              onUnloadVisualMesh={handleUnloadDae}
+              discoveredDaeFiles={discoveredDaeFiles}
+              selectedDaePath={selectedDaePath}
+              onSelectProjectDae={handleSelectDiscoveredDae}
+              onOpenDaeDialog={handleOpenDaeDialog}
+              highlightedSubmesh={highlightedSubmesh}
+              onHighlightSubmesh={handleHighlightSubmesh}
+              onUpdateSubmeshNames={handleUpdateSubmeshNames}
+              onUpdateSubmeshDetails={setVisualMeshSubmeshDetails}
+              spawnedMeshNames={spawnedMeshNames}
+              isMeshesTabActive={activeLeftTab === 'meshes'}
+              meshOpacity={meshOpacity}
+              onMeshOpacityChange={handleSetMeshOpacity}
+              meshWireframe={meshWireframe}
+              onMeshWireframeChange={handleSetMeshWireframe}
+              isolateMatchingMesh={isolateMatchingMesh}
+              onToggleIsolateMesh={handleToggleIsolateMesh}
+              viewportSource={viewportSource}
+              onChangeViewportSource={handleChangeViewportSource}
+              hasAssembly={Boolean(compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0)}
+              hiddenPartNames={hiddenPartNames}
+              onTogglePartVisibility={handleTogglePartVisibility}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+            />
+          </ErrorBoundary>
+        </main>
+
+        {/* Resizer Handle between Viewport and Right Sidebar */}
+        {rightSidebarOpen && (
+          <div
+            className="resizer-col right-resizer is-open"
+            onPointerDown={handleStartResizeRight}
+            title="Drag to resize right sidebar"
+          />
+        )}
+
+        {/* Right Sidebar: Details & Inspection (Inspector & Structure Tree) */}
+        <aside
+          className={`right-sidebar ${rightSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
+          style={{ width: rightSidebarOpen ? `${rightSidebarWidth}px` : '46px' }}
+        >
+          {/* Expanded Pane */}
+          <div
+            className="sidebar-pane-expanded"
+            style={{ width: `${rightSidebarWidth}px` }}
+            aria-hidden={!rightSidebarOpen}
+          >
+            <div className="sidebar-tabs-bar">
+              <button
+                type="button"
+                className="sidebar-toggle-close-btn"
+                onClick={() => setRightSidebarOpen(false)}
+                title="Collapse Right Sidebar"
+              >
+                <ChevronRightIcon size={15} />
+              </button>
+              <div className="sidebar-tabs">
+                <button
+                  type="button"
+                  onClick={() => setActiveRightTab('inspector')}
+                  className={`sidebar-tab-btn ${activeRightTab === 'inspector' ? 'active' : ''}`}
+                  title="Element Inspector"
+                >
+                  <InspectorIcon size={17} />
+                  <span>Inspector</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveRightTab('structure')}
+                  className={`sidebar-tab-btn ${activeRightTab === 'structure' ? 'active' : ''}`}
+                  title="Structure Tree (Nodes, Beams, Triangles)"
+                >
+                  <StructureIcon size={17} />
+                  <span>Structure</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="sidebar-content">
+              {activeRightTab === 'inspector' && (
                 <ElementInspector
                   selectedNodeId={selectedNodeId}
                   selectedBeamInfo={selectedBeamInfo}
@@ -609,24 +972,14 @@ export function DetachedViewportApp() {
                   onToggleIsolateMesh={handleToggleIsolateMesh}
                 />
               )}
-              {activeSidebarTab === 'assembly' && (
-                <AssemblyManager
-                  configurations={configurations}
-                  activeConfigName={activeConfigName}
-                  onSelectConfiguration={handleSelectConfig}
-                  rootParts={rootParts}
-                  activeRootPart={activeRootPart}
-                  onRootPartChange={handleSelectRootPart}
-                  onSelectPartForSlot={handleSelectSlotPart}
-                  assemblyTree={assemblyTree}
-                  partVisibility={partVisibility}
-                  onTogglePartVisibility={handleTogglePartVisibility}
-                  onToggleAllVisibility={handleToggleAllVisibility}
-                  totalAssembledStats={{
-                    parts: compositeVehicleParts ? Object.keys(compositeVehicleParts).length : (jbeamParts ? Object.keys(jbeamParts).filter(k => k !== '__meta').length : 0),
-                    nodes: nodeCount,
-                    beams: beamCount
-                  }}
+              {activeRightTab === 'structure' && (
+                <StructureTree
+                  jbeamParts={jbeamParts}
+                  selectedNodeId={selectedNodeId}
+                  selectedBeamKey={selectedBeamInfo?.beamKey}
+                  onSelectNode={handleSelectNode}
+                  onSelectBeam={handleSelectBeam}
+                  onRenameNode={handleRenameNode}
                 />
               )}
             </div>
@@ -634,29 +987,17 @@ export function DetachedViewportApp() {
 
           {/* Collapsed Activity Strip */}
           <div
-            className="collapsed-sidebar-strip left-collapsed-strip"
-            title="Sidebar Sections"
-            aria-hidden={sidebarOpen}
+            className="collapsed-sidebar-strip right-collapsed-strip"
+            title="Right Sidebar"
+            aria-hidden={rightSidebarOpen}
           >
             <div className="collapsed-strip-items">
               <button
                 type="button"
-                className={`collapsed-tab-btn ${activeSidebarTab === 'structure' ? 'active' : ''}`}
+                className={`collapsed-tab-btn ${activeRightTab === 'inspector' ? 'active' : ''}`}
                 onClick={() => {
-                  setActiveSidebarTab('structure');
-                  setSidebarOpen(true);
-                }}
-                title="Structure Tree (Nodes, Beams, Triangles)"
-                aria-label="Structure Tree"
-              >
-                <StructureIcon size={18} />
-              </button>
-              <button
-                type="button"
-                className={`collapsed-tab-btn ${activeSidebarTab === 'inspector' ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveSidebarTab('inspector');
-                  setSidebarOpen(true);
+                  setActiveRightTab('inspector');
+                  setRightSidebarOpen(true);
                 }}
                 title="Element Inspector"
                 aria-label="Element Inspector"
@@ -665,98 +1006,32 @@ export function DetachedViewportApp() {
               </button>
               <button
                 type="button"
-                className={`collapsed-tab-btn ${activeSidebarTab === 'assembly' ? 'active' : ''}`}
+                className={`collapsed-tab-btn ${activeRightTab === 'structure' ? 'active' : ''}`}
                 onClick={() => {
-                  setActiveSidebarTab('assembly');
-                  setSidebarOpen(true);
+                  setActiveRightTab('structure');
+                  setRightSidebarOpen(true);
                 }}
-                title="Vehicle Assembly & Slots"
-                aria-label="Vehicle Assembly"
+                title="Structure Tree (Nodes, Beams, Triangles)"
+                aria-label="Structure Tree"
               >
-                <AssemblyIcon size={18} />
+                <StructureIcon size={18} />
               </button>
             </div>
 
             <button
               type="button"
               className="collapsed-strip-expand-btn"
-              onClick={() => setSidebarOpen(true)}
-              title="Expand Left Sidebar"
-              aria-label="Expand Left Sidebar"
+              onClick={() => setRightSidebarOpen(true)}
+              title="Expand Right Sidebar"
+              aria-label="Expand Right Sidebar"
             >
-              <ChevronRightIcon size={14} />
+              <ChevronLeftIcon size={14} />
             </button>
           </div>
         </aside>
-
-        {/* Resizer Handle between Detached Sidebar and Viewport */}
-        {sidebarOpen && (
-          <div
-            className="resizer-col left-resizer is-open"
-            onPointerDown={handleStartResize}
-            title="Drag to resize sidebar"
-          />
-        )}
-
-        {/* 100% 3D Viewport Center */}
-        <main className="center-workspace" style={{ flex: 1, position: 'relative' }}>
-          <JBeamViewport
-            jbeamParts={jbeamParts}
-            compositeVehicleParts={compositeVehicleParts}
-            selectedNodeId={selectedNodeId}
-            selectedBeamKey={selectedBeamInfo?.beamKey}
-            selectedBeamInfo={selectedBeamInfo}
-            selectedSurfaceInfo={selectedSurfaceInfo}
-            onSelectNode={handleSelectNode}
-            onSelectBeam={handleSelectBeam}
-            onSelectSurface={handleSelectSurface}
-            onNodeMoved={handleCommitNodeMove}
-            onLiveNodeMove={handleLiveNodeMove}
-            symmetryEnabled={symmetryEnabled}
-            onToggleSymmetry={() => {
-              setSymmetryEnabled(prev => {
-                const next = !prev;
-                sendMessage({ type: 'TOGGLE_SYMMETRY', symmetryEnabled: next });
-                return next;
-              });
-            }}
-            activeTool={activeTool}
-            onToolChange={(tool) => {
-              setActiveTool(tool);
-              sendMessage({ type: 'SET_ACTIVE_TOOL', tool });
-            }}
-            onAddNode={handleAddNode}
-            onAddBeam={handleAddBeam}
-            onAddTriangle={handleAddTriangle}
-            onAddQuad={handleAddQuad}
-            onSubdivideBeam={handleSubdivideBeam}
-            onQuickConnect={handleQuickConnect}
-            onExtrudeNodes={handleExtrudeNodes}
-            onDeleteSelected={handleDeleteSelected}
-            onChangeBeamType={handleChangeBeamType}
-            onBatchRenameNode={handleBatchRenameNode}
-            visualMeshDaeText={visualMeshDaeText}
-            visualMeshName={visualMeshName}
-            visualMeshSubnames={visualMeshSubnames}
-            visualMeshSubmeshDetails={visualMeshSubmeshDetails}
-            highlightedSubmesh={highlightedSubmesh}
-            onHighlightSubmesh={handleHighlightSubmesh}
-            onOpenDaeDialog={handleOpenDaeDialog}
-            onUnloadVisualMesh={handleUnloadDae}
-            isolateMatchingMesh={isolateMatchingMesh}
-            onToggleIsolateMesh={handleToggleIsolateMesh}
-            viewportSource={viewportSource}
-            onChangeViewportSource={handleChangeViewportSource}
-            hiddenPartNames={hiddenPartNames}
-            onTogglePartVisibility={handleTogglePartVisibility}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-          />
-        </main>
       </div>
     </div>
   );
 }
 
 export default DetachedViewportApp;
-

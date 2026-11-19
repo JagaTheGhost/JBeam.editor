@@ -138,7 +138,7 @@ function registerFileAssociations(installDir, { associateJbeam = true, associate
 /**
  * Registers Windows "Add or Remove Programs" uninstaller
  */
-function registerUninstaller(installDir, version = 'v0.1Beta') {
+function registerUninstaller(installDir, version = 'v0.2Beta') {
   const uninstallKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\JBeamEditor';
   const exePath = getAppExePath(installDir);
   const iconPath = path.join(installDir, 'assets', 'jbeam.png');

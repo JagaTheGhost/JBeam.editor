@@ -5,8 +5,14 @@
 */
 
 import { registerJBeamHoverProvider } from './hoverProvider.js';
+import { registerJBeamRenameProvider } from './renameProvider.js';
 
 export const JBEAM_LANGUAGE_ID = 'jbeam';
+
+let symmetryGetter = () => true;
+export function setSymmetryGetter(fn) {
+  if (typeof fn === 'function') symmetryGetter = fn;
+}
 
 export function registerJBeamLanguage(monaco) {
   if (!monaco) return;
@@ -159,6 +165,9 @@ export function registerJBeamLanguage(monaco) {
 
   // Register Monaco Hover Provider for BeamNG parameter documentation & breadcrumbs
   registerJBeamHoverProvider(monaco);
+
+  // Register Monaco Rename Provider (F2 / Rename Symbol) for cascading node renames
+  registerJBeamRenameProvider(monaco, () => symmetryGetter());
 }
 
 export default {

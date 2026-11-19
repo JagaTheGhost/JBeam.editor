@@ -16,13 +16,15 @@ if (typeof window !== 'undefined') {
 loader.config({ monaco });
 
 // JBeam Language & AST
-import { registerJBeamLanguage, JBEAM_LANGUAGE_ID } from './features/jbeam/monacoJBeam.js';
+import { registerJBeamLanguage, JBEAM_LANGUAGE_ID, setSymmetryGetter } from './features/jbeam/monacoJBeam.js';
 import { validateJBeamDocument } from './features/jbeam/jbeamValidator.js';
 import {
   updateNodeCoordinatesLossless,
   addNodeLossless,
   addBeamLossless,
   updateBeamTypeLossless,
+  updateBeamPropertiesLossless,
+  updateNodePropertiesLossless,
   addTriangleLossless,
   addQuadLossless,
   deleteNodeLossless,
@@ -41,7 +43,7 @@ import { decodeWithMeta } from './features/jbeam/sjsonParser.js';
 import { extractNodeCoords } from './features/viewport/visualizers.js';
 import { getSymmetricNodeId, getSymmetricCoordinates } from './features/jbeam/symmetryUtils.js';
 import { formatBatchNodeName } from './features/jbeam/batchRenamer.js';
-import { resolveHoveredJBeamElement } from './features/jbeam/hoverProvider.js';
+import { resolveHoveredJBeamElement, resolveElementsInLineRange } from './features/jbeam/hoverProvider.js';
 
 // Live BeamNG Simulation Socket Bridge
 import {
@@ -63,12 +65,12 @@ import StructureTree from './features/explorer/StructureTree.jsx';
 import ElementInspector from './features/inspector/ElementInspector.jsx';
 import ProblemsPanel from './features/problems/ProblemsPanel.jsx';
 import JBeamViewport from './features/viewport/JBeamViewport.jsx';
-import { PowertrainVisualizer } from './features/powertrain/PowertrainVisualizer.jsx';
 import {
   FolderIcon,
   FileIcon,
   FilePlusIcon,
   AssemblyIcon,
+  CubeIcon,
   CloseIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -78,6 +80,7 @@ import {
   InspectorIcon,
   StructureIcon,
   PowertrainIcon,
+  MechanicalIcon,
   UndoIcon,
   RedoIcon
 } from './components/Icons.jsx';
@@ -91,13 +94,20 @@ import {
 } from './features/assembly/assemblyResolver.js';
 import AssemblyManager from './features/assembly/AssemblyManager.jsx';
 import NewVehicleModal from './features/templates/NewVehicleModal.jsx';
+import { DaeMeshPanel } from './features/meshes/DaeMeshPanel.jsx';
 
-// Studio Tools (Blueprints, OBJ Converter & Dedicated Powertrain Studio)
+// Studio Tools (Blueprints, OBJ Converter & Dedicated Mechanical Workspace)
 import { DEFAULT_BLUEPRINT_CONFIG } from './features/viewport/blueprintManager.js';
 import { BlueprintOverlayModal } from './features/viewport/BlueprintOverlayModal.jsx';
 import { ObjConverterModal } from './features/jbeam/ObjConverterModal.jsx';
-import { PowertrainStudio } from './features/powertrain/PowertrainStudio.jsx';
+import { MechanicalWorkspace } from './features/mechanical/MechanicalWorkspace.jsx';
+import { MechanicalBottomDock } from './features/mechanical/MechanicalBottomDock.jsx';
+import { extractMechanicalOverview } from './features/mechanical/mechanicalExtractor.js';
 import { DetachedViewportApp } from './features/viewport/DetachedViewportApp.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
+import BetaCautionModal from './components/BetaCautionModal.jsx';
+
+export const APP_VERSION = 'v0.2Beta';
 
 const UNTITLED_JBEAM = `{
   "part_name": {
@@ -144,7 +154,11 @@ export function App() {
     new URLSearchParams(window.location.search).get('view') === 'viewport-detached';
 
   if (isDetachedWindowRoute) {
-    return <DetachedViewportApp />;
+    return (
+      <ErrorBoundary title="3D Viewport Window Error">
+        <DetachedViewportApp />
+      </ErrorBoundary>
+    );
   }
 
   // Auto-Update Notification State
@@ -201,7 +215,8 @@ export function App() {
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
 
   // Left Sidebar Tab State
-  const [leftTab, setLeftTab] = useState('code'); // 'code', 'files', or 'assembly'
+  const [leftTab, setLeftTab] = useState('code'); // 'code', 'files', 'assembly', 'meshes', 'mechanical'
+  const prevViewportSourceBeforeAssemblyRef = useRef('activeDocument');
 
   // Vehicle Assembly State
   const [workspaceIndex, setWorkspaceIndex] = useState({ partsMap: {}, slotTypeMap: {}, configurations: [], rootParts: [] });
@@ -213,15 +228,62 @@ export function App() {
   const [viewportSource, setViewportSource] = useState('activeDocument'); // 'activeDocument', 'openTabs' (Multi-Part Linkage), or 'assembly'
   const [nonActiveViewType, setNonActiveViewType] = useState('cadWire'); // 'cadWire', 'mountPoints', 'crossBeams', 'ghost', 'wireframe', 'dimmed'
   const [codeHoveredElement, setCodeHoveredElement] = useState(null);
+  const [codeSelectedElements, setCodeSelectedElements] = useState(null);
   const [multiSelectedNodes, setMultiSelectedNodes] = useState([]);
+  const [focusCameraTrigger, setFocusCameraTrigger] = useState(null);
   const [isAssembling, setIsAssembling] = useState(false);
   const [isNewVehicleModalOpen, setIsNewVehicleModalOpen] = useState(false);
+
+  // Early Beta Safety Caution Dialog (prompts user to backup projects)
+  const [showBetaCaution, setShowBetaCaution] = useState(false);
+
+  useEffect(() => {
+    try {
+      const suppressedVersion = localStorage.getItem('jbeam_beta_caution_suppressed_version');
+      if (suppressedVersion !== APP_VERSION) {
+        setShowBetaCaution(true);
+      }
+    } catch (e) {
+      setShowBetaCaution(true);
+    }
+  }, []);
+
+  const handleAcknowledgeCaution = useCallback((dontShowAgain) => {
+    if (dontShowAgain) {
+      try {
+        localStorage.setItem('jbeam_beta_caution_suppressed_version', APP_VERSION);
+      } catch (e) {}
+    }
+    setShowBetaCaution(false);
+  }, []);
+
+  // Switch Left Sidebar Tab with automatic Assembly viewport restore
+  const handleSwitchLeftTab = useCallback((targetTab) => {
+    setLeftTab(prevTab => {
+      if (prevTab === targetTab) return prevTab;
+      if (targetTab === 'assembly') {
+        if (viewportSource !== 'assembly') {
+          prevViewportSourceBeforeAssemblyRef.current = viewportSource;
+        }
+        setViewportSource('assembly');
+        setIsolateMatchingMesh(true);
+      } else if (prevTab === 'assembly') {
+        // User switched OUT of Assembly tab: restore previous viewport mode (e.g. 'activeDocument')
+        const restored = (prevViewportSourceBeforeAssemblyRef.current && prevViewportSourceBeforeAssemblyRef.current !== 'assembly')
+          ? prevViewportSourceBeforeAssemblyRef.current
+          : 'activeDocument';
+        setViewportSource(restored);
+      }
+      return targetTab;
+    });
+  }, [viewportSource]);
 
   // UI Layout State
   const [layoutMode, setLayoutMode] = useState('hybrid'); // 'hybrid', 'code', 'viewport'
   const [splitRatio, setSplitRatio] = useState(50); // percentage for code editor width
   const [rightTab, setRightTab] = useState('inspector'); // 'structure', 'inspector'
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+  const [bottomPanelTab, setBottomPanelTab] = useState('problems'); // 'problems' | 'mechanical'
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(440);
@@ -230,7 +292,6 @@ export function App() {
   const [isolateMatchingMesh, setIsolateMatchingMesh] = useState(false);
   const [isViewportDetached, setIsViewportDetached] = useState(false);
   const [detachedWindow, setDetachedWindow] = useState(null);
-  const [detachedRightTab, setDetachedRightTab] = useState('files'); // 'files', 'assembly'
   const [isResizing, setIsResizing] = useState(false);
 
   // Smooth Section Resizing Handler (Left Sidebar, Right Sidebar, Bottom Panel, Split Pane)
@@ -292,6 +353,7 @@ export function App() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const isSelectingFromViewportRef = useRef(false);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
   const activeTabRef = useRef(activeTab);
@@ -311,6 +373,14 @@ export function App() {
     }, 3000);
     return () => clearTimeout(timer);
   }, [lastRenamedFeedback]);
+
+  // Clear selection state when switching active document tabs to avoid ghost element inspection
+  useEffect(() => {
+    setSelectedNodeId(null);
+    setSelectedBeamInfo(null);
+    setSelectedSurfaceInfo(null);
+    setCodeSelectedElements(null);
+  }, [activeTabId]);
 
   // Live BeamNG Simulation Socket State
   const [simStatus, setSimStatus] = useState('disconnected');
@@ -342,6 +412,36 @@ export function App() {
   const [highlightedSubmesh, setHighlightedSubmesh] = useState(null);
   const [visualMeshSubnames, setVisualMeshSubnames] = useState([]);
   const [visualMeshSubmeshDetails, setVisualMeshSubmeshDetails] = useState({});
+  const [spawnedMeshNames, setSpawnedMeshNames] = useState(new Set());
+  const [selectedDaePath, setSelectedDaePath] = useState('');
+  const [meshOpacity, setMeshOpacity] = useState(0.45);
+  const [meshWireframe, setMeshWireframe] = useState(false);
+
+  const handleToggleSpawnMesh = useCallback((meshName) => {
+    setSpawnedMeshNames(prev => {
+      const next = new Set(prev);
+      if (next.has(meshName)) {
+        next.delete(meshName);
+      } else {
+        next.add(meshName);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSpawnAllMeshes = useCallback(() => {
+    setSpawnedMeshNames(new Set(visualMeshSubnames));
+  }, [visualMeshSubnames]);
+
+  const handleDespawnAllMeshes = useCallback(() => {
+    setSpawnedMeshNames(new Set());
+  }, []);
+
+  const handleUpdateSubmeshNames = useCallback((names) => {
+    setVisualMeshSubnames(names);
+    // Initialize spawnedMeshNames with all detected submeshes by default
+    setSpawnedMeshNames(new Set(names));
+  }, []);
 
   const handleLoadDaeContent = useCallback((daeText, fileName = 'vehicle.dae') => {
     setVisualMeshDaeText(daeText);
@@ -357,6 +457,8 @@ export function App() {
     setHighlightedSubmesh(null);
     setVisualMeshSubnames([]);
     setVisualMeshSubmeshDetails({});
+    setSpawnedMeshNames(new Set());
+    setSelectedDaePath('__none__');
   }, []);
 
   const handleHighlightSubmesh = useCallback((meshName) => {
@@ -366,18 +468,54 @@ export function App() {
     }
   }, []);
 
+  const handleUploadDaeFile = useCallback(async (daeText, fileName) => {
+    if (!daeText || !fileName) return;
+
+    let fullPath = null;
+    if (workspacePath && window.jbeamAPI?.saveDirectFile) {
+      const cleanWorkspace = workspacePath.replace(/[\\/]+$/, '');
+      const separator = cleanWorkspace.includes('\\') ? '\\' : '/';
+      fullPath = `${cleanWorkspace}${separator}${fileName}`;
+      try {
+        await window.jbeamAPI.saveDirectFile(fullPath, daeText);
+        if (window.jbeamAPI?.readWorkspaceTree) {
+          const tree = await window.jbeamAPI.readWorkspaceTree(workspacePath);
+          if (tree) setWorkspaceFiles(tree);
+        }
+      } catch (err) {
+        console.error('Failed to save uploaded DAE to workspace folder:', err);
+      }
+    } else {
+      fullPath = workspacePath ? `${workspacePath}/${fileName}` : fileName;
+      setWorkspaceFiles(prev => [
+        ...(prev || []).filter(f => f.name !== fileName),
+        {
+          name: fileName,
+          path: fullPath,
+          isDirectory: false,
+          isDae: true,
+          content: daeText
+        }
+      ]);
+    }
+
+    setSelectedDaePath(fullPath || fileName);
+    handleLoadDaeContent(daeText, fileName);
+    setLeftTab('meshes');
+  }, [workspacePath, handleLoadDaeContent]);
+
   const handleOpenDaeDialog = useCallback(async () => {
     try {
       if (window.jbeamAPI?.openDaeDialog) {
         const res = await window.jbeamAPI.openDaeDialog();
         if (!res.canceled && res.content) {
-          handleLoadDaeContent(res.content, res.fileName || 'model.dae');
+          await handleUploadDaeFile(res.content, res.fileName || 'model.dae');
         }
       }
     } catch (err) {
       console.error('Error opening DAE dialog:', err);
     }
-  }, [handleLoadDaeContent]);
+  }, [handleUploadDaeFile]);
 
   // Studio Tools State (Blueprints & Wavefront OBJ Converter)
   const [blueprintConfig, setBlueprintConfig] = useState(DEFAULT_BLUEPRINT_CONFIG);
@@ -392,7 +530,7 @@ export function App() {
         if (n.isDirectory && n.children) {
           extractDae(n.children, acc);
         } else if (n.name && n.name.toLowerCase().endsWith('.dae')) {
-          acc.push({ name: n.name, path: n.path });
+          acc.push({ name: n.name, path: n.path, content: n.content || n.virtualContent });
         }
       }
       return acc;
@@ -432,26 +570,43 @@ export function App() {
   }, [discoveredDaeFiles, layoutMode]);
 
   const handleSelectDiscoveredDae = useCallback(async (daePath) => {
-    if (!daePath) {
+    if (!daePath || daePath === '__none__') {
+      setSelectedDaePath('__none__');
       handleUnloadDae();
       return;
     }
+    setSelectedDaePath(daePath);
     if (daePath === '__all__') {
       await handleSelectAllDiscoveredDae();
       return;
     }
     try {
+      const fileName = daePath.split(/[\\/]/).pop();
+      const matched = (discoveredDaeFiles || []).find(d => d.path === daePath || d.name === daePath || d.name === fileName);
+      if (matched?.content) {
+        handleLoadDaeContent(matched.content, fileName);
+        return;
+      }
+      const targetPath = matched?.path || daePath;
       if (window.jbeamAPI?.readFile) {
-        const res = await window.jbeamAPI.readFile(daePath);
-        if (res.success) {
-          const fileName = daePath.split(/[\\/]/).pop();
+        const res = await window.jbeamAPI.readFile(targetPath);
+        if (res && res.success && res.content) {
           handleLoadDaeContent(res.content, fileName);
         }
       }
     } catch (err) {
       console.error('Error loading discovered DAE file:', err);
     }
-  }, [handleLoadDaeContent, handleUnloadDae, handleSelectAllDiscoveredDae]);
+  }, [discoveredDaeFiles, handleLoadDaeContent, handleUnloadDae, handleSelectAllDiscoveredDae]);
+
+  // Auto-select and load discovered DAE file in workspace on initial load (unless user explicitly selected none)
+  useEffect(() => {
+    if (selectedDaePath === '__none__') return;
+    if (discoveredDaeFiles && discoveredDaeFiles.length > 0 && !visualMeshDaeText && !selectedDaePath) {
+      const daePath = discoveredDaeFiles[0].path;
+      handleSelectDiscoveredDae(daePath);
+    }
+  }, [discoveredDaeFiles, visualMeshDaeText, selectedDaePath, handleSelectDiscoveredDae]);
 
   // Validate JBeam Document on Content Change (Debounced)
   const runValidation = useCallback((content, filePath = 'document.jbeam') => {
@@ -552,14 +707,17 @@ export function App() {
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    setSymmetryGetter(() => symmetryEnabledRef.current);
 
     // Synchronize selection: single cursor click or multi-line range selection selects elements in 3D & Inspector
     editor.onDidChangeCursorSelection((e) => {
+      if (isSelectingFromViewportRef.current) return;
       const selection = e.selection;
       const model = editor.getModel();
       if (!model) return;
 
       if (selection.isEmpty()) {
+        setCodeSelectedElements(null);
         const line = selection.positionLineNumber;
         const col = selection.positionColumn;
         setCursorPos({ line, column: col });
@@ -575,19 +733,39 @@ export function App() {
             setRightTab('inspector');
           } else if (el.type === 'beam') {
             const pName = el.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
+            let resolvedBeam = el.beamData;
+            if (!resolvedBeam && validationResultRef.current?.parts?.[pName]?.beams) {
+              const partBeams = validationResultRef.current.parts[pName].beams;
+              if (el.beamKey && partBeams[el.beamKey]) {
+                resolvedBeam = partBeams[el.beamKey];
+              } else if (el.id1 && el.id2) {
+                for (const b of Object.values(partBeams)) {
+                  if ((b['id1:'] === el.id1 && b['id2:'] === el.id2) || (b['id1:'] === el.id2 && b['id2:'] === el.id1)) {
+                    resolvedBeam = b;
+                    break;
+                  }
+                }
+              }
+            }
             setSelectedBeamInfo({
               partName: pName,
               beamKey: el.beamKey || `${el.id1}_${el.id2}`,
-              beam: el.beamData || { 'id1:': el.id1, 'id2:': el.id2 }
+              beam: resolvedBeam || { 'id1:': el.id1, 'id2:': el.id2 }
             });
             setSelectedNodeId(null);
             setMultiSelectedNodes([]);
             setSelectedSurfaceInfo(null);
             setRightSidebarOpen(true);
             setRightTab('inspector');
-          } else if (el.type === 'tri' || el.type === 'quad') {
+          } else if (el.type === 'triangle' || el.type === 'tri' || el.type === 'quad') {
             const pName = el.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
-            setSelectedSurfaceInfo({ ...el.surfaceData, type: el.type, partName: pName });
+            setSelectedSurfaceInfo({
+              ...(el.surfaceData || {}),
+              nodes: el.nodes,
+              type: el.type,
+              partName: pName,
+              key: el.key
+            });
             setSelectedNodeId(null);
             setMultiSelectedNodes([]);
             setSelectedBeamInfo(null);
@@ -598,50 +776,108 @@ export function App() {
         return;
       }
 
-      // Multi-line selection in Monaco: extract all node IDs within selection range!
-      const startLine = selection.startLineNumber;
-      const endLine = selection.endLineNumber;
-      const foundNodeIds = [];
-      let foundBeam = null;
-      let foundSurface = null;
+      // Multi-line selection in Monaco: extract all elements within selection range(s)!
+      const selections = editor.getSelections() || [selection];
+      const mergedResolved = {
+        nodes: [],
+        beams: [],
+        triangles: [],
+        quads: [],
+        all: []
+      };
+      const seenNodeIds = new Set();
+      const seenBeamKeys = new Set();
+      const seenTriKeys = new Set();
+      const seenQuadKeys = new Set();
 
-      for (let ln = startLine; ln <= endLine; ln++) {
-        const lineContent = model.getLineContent(ln);
-        const firstNonSpace = lineContent.search(/\S/);
-        const col = firstNonSpace >= 0 ? firstNonSpace + 2 : 1;
-        const el = resolveHoveredJBeamElement(model, ln, col, validationResultRef.current);
-        if (el) {
-          if (el.type === 'node' && el.id && !foundNodeIds.includes(el.id)) {
-            foundNodeIds.push(el.id);
-          } else if (el.type === 'beam' && !foundBeam) {
-            const pName = el.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
-            foundBeam = {
-              partName: pName,
-              beamKey: el.beamKey || `${el.id1}_${el.id2}`,
-              beam: el.beamData || { 'id1:': el.id1, 'id2:': el.id2 }
-            };
-          } else if ((el.type === 'tri' || el.type === 'quad') && !foundSurface) {
-            const pName = el.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
-            foundSurface = { ...el.surfaceData, type: el.type, partName: pName };
+      for (const sel of selections) {
+        const startLine = sel.startLineNumber;
+        const endLine = sel.endLineNumber;
+        const res = resolveElementsInLineRange(model, startLine, endLine, validationResultRef.current);
+        if (res) {
+          for (const n of res.nodes) {
+            if (!seenNodeIds.has(n.id)) {
+              seenNodeIds.add(n.id);
+              mergedResolved.nodes.push(n);
+              mergedResolved.all.push(n);
+            }
+          }
+          for (const b of res.beams) {
+            const key = b.beamKey || `${b.id1}_${b.id2}`;
+            if (!seenBeamKeys.has(key)) {
+              seenBeamKeys.add(key);
+              mergedResolved.beams.push(b);
+              mergedResolved.all.push(b);
+            }
+          }
+          for (const t of res.triangles) {
+            const key = t.key || t.nodes.join('_');
+            if (!seenTriKeys.has(key)) {
+              seenTriKeys.add(key);
+              mergedResolved.triangles.push(t);
+              mergedResolved.all.push(t);
+            }
+          }
+          for (const q of res.quads) {
+            const key = q.key || q.nodes.join('_');
+            if (!seenQuadKeys.has(key)) {
+              seenQuadKeys.add(key);
+              mergedResolved.quads.push(q);
+              mergedResolved.all.push(q);
+            }
           }
         }
       }
 
-      if (foundNodeIds.length > 0) {
-        setSelectedNodeId(foundNodeIds[0]);
-        setMultiSelectedNodes(foundNodeIds);
-        setSelectedBeamInfo(null);
-        setSelectedSurfaceInfo(null);
-      } else if (foundBeam) {
-        setSelectedBeamInfo(foundBeam);
-        setSelectedNodeId(null);
-        setMultiSelectedNodes([]);
-        setSelectedSurfaceInfo(null);
-      } else if (foundSurface) {
-        setSelectedSurfaceInfo(foundSurface);
-        setSelectedNodeId(null);
-        setMultiSelectedNodes([]);
-        setSelectedBeamInfo(null);
+      if (mergedResolved.all.length > 0) {
+        setCodeSelectedElements(mergedResolved);
+
+        if (mergedResolved.nodes.length > 0) {
+          const nodeIds = mergedResolved.nodes.map(n => n.id);
+          setSelectedNodeId(nodeIds[0]);
+          setMultiSelectedNodes(nodeIds);
+          setSelectedBeamInfo(null);
+          setSelectedSurfaceInfo(null);
+        } else if (mergedResolved.beams.length > 0) {
+          const b = mergedResolved.beams[0];
+          const pName = b.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
+          setSelectedBeamInfo({
+            partName: pName,
+            beamKey: b.beamKey || `${b.id1}_${b.id2}`,
+            beam: b.beamData || { 'id1:': b.id1, 'id2:': b.id2 }
+          });
+          setSelectedNodeId(null);
+          setMultiSelectedNodes([]);
+          setSelectedSurfaceInfo(null);
+        } else if (mergedResolved.triangles.length > 0) {
+          const t = mergedResolved.triangles[0];
+          const pName = t.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
+          setSelectedSurfaceInfo({
+            ...(t.surfaceData || {}),
+            nodes: t.nodes,
+            type: 'triangle',
+            partName: pName,
+            key: t.key
+          });
+          setSelectedNodeId(null);
+          setMultiSelectedNodes([]);
+          setSelectedBeamInfo(null);
+        } else if (mergedResolved.quads.length > 0) {
+          const q = mergedResolved.quads[0];
+          const pName = q.partName || Object.keys(validationResultRef.current?.parts || {})[0] || 'main';
+          setSelectedSurfaceInfo({
+            ...(q.surfaceData || {}),
+            nodes: q.nodes,
+            type: 'quad',
+            partName: pName,
+            key: q.key
+          });
+          setSelectedNodeId(null);
+          setMultiSelectedNodes([]);
+          setSelectedBeamInfo(null);
+        }
+      } else {
+        setCodeSelectedElements(null);
       }
     });
 
@@ -1178,12 +1414,13 @@ export function App() {
   }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
 
   // Option 2: Subdivide Beam (Add node in between beam like Blender)
-  const handleSubdivideBeam = useCallback((partNameOrOpts, id1Arg, id2Arg, splitPosArg, customNodeIdArg = null) => {
+  const handleSubdivideBeam = useCallback((partNameOrOpts, id1Arg, id2Arg, splitPosArg, customNodeIdArg = null, cutsArg = 1) => {
     let partName = partNameOrOpts;
     let id1 = id1Arg;
     let id2 = id2Arg;
     let splitPos = splitPosArg;
     let customNodeId = customNodeIdArg;
+    let cuts = typeof cutsArg === 'number' ? cutsArg : 1;
 
     if (typeof partNameOrOpts === 'object' && partNameOrOpts !== null) {
       partName = partNameOrOpts.partName;
@@ -1191,48 +1428,90 @@ export function App() {
       id2 = partNameOrOpts.id2;
       splitPos = partNameOrOpts.splitPos || partNameOrOpts.point;
       customNodeId = partNameOrOpts.customNodeId || null;
+      cuts = typeof partNameOrOpts.cuts === 'number' ? partNameOrOpts.cuts : 1;
     }
 
     const curTab = activeTabRef.current || activeTab;
-    if (!curTab || !id1 || !id2 || !Array.isArray(splitPos)) return;
+    if (!curTab || !id1 || !id2) return;
 
     const parts = (validationResultRef.current || validationResult).parts || {};
     const partKeys = Object.keys(parts).filter(k => k !== '__meta');
     let targetPartName = partName || (partKeys.length > 0 ? partKeys[0] : 'main');
 
-    // Auto-name intermediate node if not given
-    let newNodeId = customNodeId;
-    if (!newNodeId) {
-      const existingNodeIds = new Set();
-      for (const pKey of partKeys) {
-        const p = parts[pKey];
-        if (p?.nodes) {
-          for (const nid of Object.keys(p.nodes).filter(k => k !== '__meta')) {
-            existingNodeIds.add(nid);
-          }
+    // Retrieve endpoints p1 and p2 to compute intermediate positions
+    let p1 = null;
+    let p2 = null;
+    for (const pk of partKeys) {
+      const p = parts[pk];
+      if (p?.nodes) {
+        if (!p1 && p.nodes[id1]) {
+          const n = p.nodes[id1];
+          p1 = [n.posX ?? n.pos?.[0] ?? 0, n.posY ?? n.pos?.[1] ?? 0, n.posZ ?? n.pos?.[2] ?? 0];
+        }
+        if (!p2 && p.nodes[id2]) {
+          const n = p.nodes[id2];
+          p2 = [n.posX ?? n.pos?.[0] ?? 0, n.posY ?? n.pos?.[1] ?? 0, n.posZ ?? n.pos?.[2] ?? 0];
         }
       }
-      let maxNum = 0;
-      for (const nid of existingNodeIds) {
-        const m = nid.match(/^(?:n|node_?)(\d+)/i);
-        if (m) {
-          const num = parseInt(m[1], 10);
-          if (num > maxNum) maxNum = num;
-        }
-      }
-      const nextNum = maxNum + 1;
-      const isSymmetric = symmetryEnabled && Math.abs(splitPos[0]) > 0.005;
-      if (isSymmetric) {
-        newNodeId = splitPos[0] < 0 ? `n${nextNum}r` : `n${nextNum}l`;
+    }
+
+    if (!p1 || !p2) {
+      if (Array.isArray(splitPos)) {
+        p1 = splitPos;
+        p2 = splitPos;
       } else {
-        newNodeId = `n${nextNum}`;
+        return;
       }
+    }
+
+    const existingNodeIds = new Set();
+    for (const pKey of partKeys) {
+      const p = parts[pKey];
+      if (p?.nodes) {
+        for (const nid of Object.keys(p.nodes).filter(k => k !== '__meta')) {
+          existingNodeIds.add(nid);
+        }
+      }
+    }
+
+    let maxNum = 0;
+    for (const nid of existingNodeIds) {
+      const m = nid.match(/^(?:n|node_?)(\d+)/i);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    }
+
+    const newNodes = [];
+    for (let c = 1; c <= cuts; c++) {
+      const t = cuts === 1 ? 0.5 : c / (cuts + 1);
+      const pos = [
+        Number((p1[0] + t * (p2[0] - p1[0])).toFixed(4)),
+        Number((p1[1] + t * (p2[1] - p1[1])).toFixed(4)),
+        Number((p1[2] + t * (p2[2] - p1[2])).toFixed(4))
+      ];
+
+      let nid;
+      if (customNodeId && String(customNodeId).trim()) {
+        const trimmed = String(customNodeId).trim();
+        nid = cuts === 1 ? trimmed : (trimmed.includes('#') ? trimmed.replace(/#+/, String(c)) : `${trimmed}_${c}`);
+      } else {
+        const nextNum = maxNum + c;
+        const isSymmetric = symmetryEnabled && Math.abs(pos[0]) > 0.005;
+        if (isSymmetric) {
+          nid = pos[0] < 0 ? `n${nextNum}r` : `n${nextNum}l`;
+        } else {
+          nid = `n${nextNum}`;
+        }
+      }
+      newNodes.push({ id: nid, pos });
     }
 
     const res = subdivideBeamLossless(
       curTab.content,
       targetPartName,
-      { id1, id2, newNodeId, newPos: splitPos },
+      { id1, id2, newNodes, newNodeId: newNodes[0]?.id, newPos: newNodes[0]?.pos },
       symmetryEnabled
     );
 
@@ -1242,7 +1521,7 @@ export function App() {
     }
 
     applyDocumentEdit(res.updatedText, 'subdivide-beam');
-    setSelectedNodeId(newNodeId);
+    if (newNodes.length > 0) setSelectedNodeId(newNodes[0].id);
     runValidation(res.updatedText, curTab.filePath || curTab.title);
   }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
 
@@ -1529,11 +1808,21 @@ export function App() {
   };
 
   // Select Node (From Viewport or Structure Tree)
-  const handleSelectNode = (nodeId) => {
+  const handleSelectNode = (nodeId, preserveMulti = false) => {
+    isSelectingFromViewportRef.current = true;
     setSelectedNodeId(nodeId);
-    setSelectedBeamInfo(null);
-    setSelectedSurfaceInfo(null);
-    setLiveCoords(null);
+    if (!preserveMulti) {
+      setMultiSelectedNodes(nodeId ? [nodeId] : []);
+    } else if (nodeId) {
+      setMultiSelectedNodes(prev => (prev.includes(nodeId) ? prev : [...prev, nodeId]));
+    }
+    if (nodeId) {
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(null);
+      setLiveCoords(null);
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+    }
 
     // If node selected, reveal in editor
     if (nodeId && editorRef.current && validationResult.parts) {
@@ -1547,10 +1836,12 @@ export function App() {
         }
       }
     }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
   };
 
   // Select Beam (From Structure Tree, Viewport, or IPC)
   const handleSelectBeam = (partNameOrInfo, maybeBeamKey, maybeBeam) => {
+    isSelectingFromViewportRef.current = true;
     let partName, beamKey, beam;
     if (partNameOrInfo && typeof partNameOrInfo === 'object') {
       partName = partNameOrInfo.partName;
@@ -1562,26 +1853,118 @@ export function App() {
       beam = maybeBeam;
     }
 
-    if (!beam && partName && beamKey && validationResultRef.current?.parts?.[partName]?.beams) {
-      beam = validationResultRef.current.parts[partName].beams[beamKey];
+    const valResult = validationResultRef.current || validationResult;
+    if (!beam && partName && beamKey && valResult?.parts?.[partName]?.beams) {
+      beam = valResult.parts[partName].beams[beamKey];
+    }
+    // Deep fallback beam lookup across parts by beamKey or endpoint IDs
+    if ((!beam || Object.keys(beam).length <= 4) && valResult?.parts) {
+      const id1 = beam?.['id1:'] || partNameOrInfo?.id1;
+      const id2 = beam?.['id2:'] || partNameOrInfo?.id2;
+      for (const pKey of Object.keys(valResult.parts).filter(k => k !== '__meta')) {
+        const p = valResult.parts[pKey];
+        if (p?.beams) {
+          if (beamKey && p.beams[beamKey]) {
+            beam = p.beams[beamKey];
+            partName = pKey;
+            break;
+          }
+          if (id1 && id2) {
+            for (const [bk, b] of Object.entries(p.beams)) {
+              if (bk === '__meta') continue;
+              if ((b['id1:'] === id1 && b['id2:'] === id2) || (b['id1:'] === id2 && b['id2:'] === id1)) {
+                beam = b;
+                beamKey = bk;
+                partName = pKey;
+                break;
+              }
+            }
+            if (beam) break;
+          }
+        }
+      }
     }
 
-    setSelectedNodeId(null);
-    setSelectedSurfaceInfo(null);
-    setSelectedBeamInfo((partName || beamKey || beam) ? { partName, beamKey, beam } : null);
+    const hasBeam = Boolean(partName || beamKey || beam);
+    if (hasBeam) {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+      setSelectedSurfaceInfo(null);
+      setSelectedBeamInfo({
+        partName: partName || Object.keys(valResult?.parts || {})[0] || 'main',
+        beamKey: beamKey || `${beam?.['id1:']}_${beam?.['id2:']}`,
+        beam
+      });
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+    } else {
+      setSelectedBeamInfo(null);
+    }
 
     if (beam?.__meta?.range && editorRef.current) {
       const targetLine = beam.__meta.range[0] + 1;
       editorRef.current.revealLineInCenter(targetLine);
       editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
     }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
   };
 
   // Select Surface (Triangle or Quad from 3D Viewport)
   const handleSelectSurface = (surfaceInfo) => {
-    setSelectedNodeId(null);
-    setSelectedBeamInfo(null);
-    setSelectedSurfaceInfo(surfaceInfo);
+    isSelectingFromViewportRef.current = true;
+    if (surfaceInfo) {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(surfaceInfo);
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+
+      // Reveal corresponding line in Monaco editor
+      let targetLine = surfaceInfo.range ? surfaceInfo.range[0] + 1 : null;
+      if (!targetLine && surfaceInfo.nodes && validationResultRef.current?.parts) {
+        const parts = validationResultRef.current.parts;
+        for (const pKey of Object.keys(parts).filter(k => k !== '__meta')) {
+          const p = parts[pKey];
+          if (p.triangles) {
+            for (const [tk, tri] of Object.entries(p.triangles)) {
+              if (tk === '__meta' || !tri) continue;
+              const tNodes = [tri['id1:'] || tri.id1, tri['id2:'] || tri.id2, tri['id3:'] || tri.id3];
+              if (surfaceInfo.nodes.length === 3 && surfaceInfo.nodes.every(n => tNodes.includes(n))) {
+                if (tri.__meta?.range) {
+                  targetLine = tri.__meta.range[0] + 1;
+                  surfaceInfo.range = tri.__meta.range;
+                  break;
+                }
+              }
+            }
+          }
+          if (targetLine) break;
+          if (p.quads) {
+            for (const [qk, quad] of Object.entries(p.quads)) {
+              if (qk === '__meta' || !quad) continue;
+              const qNodes = [quad['id1:'] || quad.id1, quad['id2:'] || quad.id2, quad['id3:'] || quad.id3, quad['id4:'] || quad.id4];
+              if (surfaceInfo.nodes.length === 4 && surfaceInfo.nodes.every(n => qNodes.includes(n))) {
+                if (quad.__meta?.range) {
+                  targetLine = quad.__meta.range[0] + 1;
+                  surfaceInfo.range = quad.__meta.range;
+                  break;
+                }
+              }
+            }
+          }
+          if (targetLine) break;
+        }
+      }
+
+      if (targetLine && editorRef.current) {
+        editorRef.current.revealLineInCenter(targetLine);
+        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+      }
+    } else {
+      setSelectedSurfaceInfo(null);
+    }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
   };
 
   // Change Beam Physics Type Losslessly (Normal, Support, Hydro, Bounded, Anisotropic, Pressured, LBeam)
@@ -1625,6 +2008,79 @@ export function App() {
     }
   }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
 
+  // Update Beam Physical Properties Losslessly (beamSpring, beamDamp, beamDeform, beamStrength, beamPrecompression)
+  const handleUpdateBeamProperties = useCallback((partName, id1, id2, newProps) => {
+    const curTab = activeTabRef.current || activeTab;
+    if (!curTab?.content) return;
+
+    let targetPart = partName;
+    const valResult = validationResultRef.current || validationResult;
+    if (!targetPart && valResult?.parts) {
+      for (const pKey of Object.keys(valResult.parts).filter(k => k !== '__meta')) {
+        const p = valResult.parts[pKey];
+        if (p?.beams) {
+          for (const b of Object.values(p.beams)) {
+            if ((b['id1:'] === id1 && b['id2:'] === id2) || (b['id1:'] === id2 && b['id2:'] === id1)) {
+              targetPart = pKey;
+              break;
+            }
+          }
+        }
+        if (targetPart) break;
+      }
+    }
+    if (!targetPart) {
+      targetPart = Object.keys(valResult?.parts || {})[0] || 'main';
+    }
+
+    const res = updateBeamPropertiesLossless(curTab.content, targetPart, id1, id2, newProps, symmetryEnabled);
+    if (res.error) {
+      console.error('Failed to update beam properties:', res.error);
+      return;
+    }
+
+    if (res.updatedText) {
+      applyDocumentEdit(res.updatedText, 'update-beam-props');
+      setSelectedBeamInfo(prev => prev ? {
+        ...prev,
+        beam: { ...prev.beam, ...newProps }
+      } : null);
+      runValidation(res.updatedText, curTab.filePath || curTab.title);
+    }
+  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+
+  // Update Node Physical Properties Losslessly (nodeWeight, nodeMaterial, frictionCoef)
+  const handleUpdateNodeProperties = useCallback((partName, nodeId, newProps) => {
+    const curTab = activeTabRef.current || activeTab;
+    if (!curTab?.content) return;
+
+    let targetPart = partName;
+    const valResult = validationResultRef.current || validationResult;
+    if (!targetPart && valResult?.parts) {
+      for (const pKey of Object.keys(valResult.parts).filter(k => k !== '__meta')) {
+        const p = valResult.parts[pKey];
+        if (p?.nodes && (p.nodes[nodeId] || p.nodes[`${pKey}_${nodeId}`])) {
+          targetPart = pKey;
+          break;
+        }
+      }
+    }
+    if (!targetPart) {
+      targetPart = Object.keys(valResult?.parts || {})[0] || 'main';
+    }
+
+    const res = updateNodePropertiesLossless(curTab.content, targetPart, nodeId, newProps, symmetryEnabled);
+    if (res.error) {
+      console.error('Failed to update node properties:', res.error);
+      return;
+    }
+
+    if (res.updatedText) {
+      applyDocumentEdit(res.updatedText, 'update-node-props');
+      runValidation(res.updatedText, curTab.filePath || curTab.title);
+    }
+  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+
   // Flip Surface Normal / Invert Winding Order
   const handleFlipSurfaceNormal = useCallback((surfaceInfo) => {
     if (!surfaceInfo || !surfaceInfo.nodes || !editorRef.current) return;
@@ -1659,8 +2115,24 @@ export function App() {
     } : null);
   }, [symmetryEnabled]);
 
-  // Jump to line in editor
-  const handleJumpToCode = (lineNumber) => {
+  // Jump to line in editor with optional cross-file resolution
+  const handleJumpToCode = (lineNumber, options = {}) => {
+    const targetFilePath = options.filePath ||
+      (options.partName && workspaceIndex?.partsMap?.[options.partName]?.filePath) ||
+      (options.partName && compositeVehicleParts?.[options.partName]?.__filePath);
+
+    if (targetFilePath) {
+      const activeFilePath = (activeTabRef.current || activeTab)?.filePath;
+      const normTarget = targetFilePath.replace(/\\/g, '/');
+      const normActive = activeFilePath ? activeFilePath.replace(/\\/g, '/') : '';
+      if (!normActive || normTarget !== normActive) {
+        ensureFileOpenAndJump(targetFilePath, lineNumber, options.id || options.name);
+        return;
+      }
+    }
+
+    setLeftSidebarOpen(true);
+    setLeftTab('code');
     if (editorRef.current && lineNumber) {
       editorRef.current.revealLineInCenter(lineNumber);
       editorRef.current.setPosition({ lineNumber, column: 1 });
@@ -1718,9 +2190,17 @@ export function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [handleUndo, handleRedo]);
 
-  // Jump to declared powertrain device in active editor
-  const handleJumpToPowertrainDevice = (deviceName) => {
+  // Jump to declared powertrain device in active editor or across vehicle files
+  const handleJumpToPowertrainDevice = (deviceName, partName = null) => {
     if (!deviceName) return;
+    const resolvedFilePath = (partName && workspaceIndex?.partsMap?.[partName]?.filePath) ||
+      (partName && compositeVehicleParts?.[partName]?.__filePath);
+
+    if (resolvedFilePath) {
+      ensureFileOpenAndJump(resolvedFilePath, null, deviceName);
+      return;
+    }
+
     setLeftSidebarOpen(true);
     setLeftTab('code');
 
@@ -1834,9 +2314,10 @@ export function App() {
     try {
       const fileName = filePath.split(/[\\/]/).pop();
 
-      // Intercept .dae files -> load directly as 3D Visual Mesh Overlay
+      // Intercept .dae files -> load directly as 3D Visual Mesh Overlay and switch to Meshes tab
       if (fileName && fileName.toLowerCase().endsWith('.dae')) {
         await handleSelectDiscoveredDae(filePath);
+        setLeftTab('meshes');
         return;
       }
 
@@ -1923,6 +2404,142 @@ export function App() {
     }
     return null;
   }, [tabs, workspaceFiles]);
+
+  // Ensure a file is opened as an editor tab and reveal line or search token
+  const ensureFileOpenAndJump = useCallback(async (filePath, lineNumber = null, searchToken = null) => {
+    setLeftSidebarOpen(true);
+    setLeftTab('code');
+
+    const jumpInEditor = (line) => {
+      setTimeout(() => {
+        if (editorRef.current && line) {
+          editorRef.current.revealLineInCenter(line);
+          editorRef.current.setPosition({ lineNumber: line, column: 1 });
+          editorRef.current.focus();
+        }
+      }, 70);
+    };
+
+    if (!filePath) {
+      if (lineNumber) jumpInEditor(lineNumber);
+      return;
+    }
+
+    const normTarget = filePath.replace(/\\/g, '/');
+    const existingTab = tabs.find(t => t.filePath && t.filePath.replace(/\\/g, '/') === normTarget);
+
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      let targetLine = lineNumber;
+      if ((!targetLine || targetLine <= 0) && searchToken && existingTab.content) {
+        const lines = existingTab.content.split('\n');
+        const escaped = String(searchToken).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`["']?${escaped}["']?`);
+        for (let i = 0; i < lines.length; i++) {
+          if (regex.test(lines[i])) {
+            targetLine = i + 1;
+            break;
+          }
+        }
+      }
+      if (targetLine) jumpInEditor(targetLine);
+      return;
+    }
+
+    try {
+      const fileName = filePath.split(/[\\/]/).pop();
+      const content = await readPartFileContent(filePath);
+      if (content !== null && content !== undefined) {
+        openContentAsTab(fileName, filePath, content);
+        let targetLine = lineNumber;
+        if ((!targetLine || targetLine <= 0) && searchToken) {
+          const lines = content.split('\n');
+          const escaped = String(searchToken).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`["']?${escaped}["']?`);
+          for (let i = 0; i < lines.length; i++) {
+            if (regex.test(lines[i])) {
+              targetLine = i + 1;
+              break;
+            }
+          }
+        }
+        if (targetLine) jumpInEditor(targetLine);
+      }
+    } catch (err) {
+      console.error('[JBeam Studio] Failed to open file and jump:', err);
+    }
+  }, [tabs, readPartFileContent, openContentAsTab]);
+
+  // Jump to declared powertrain device or element across vehicle files
+  const handleJumpToMechanicalElement = useCallback((el) => {
+    if (!el) return;
+    const targetPart = el.partName;
+    const targetName = el.name || el.item?.name;
+    const resolvedFilePath = el.filePath ||
+      (targetPart && workspaceIndex?.partsMap?.[targetPart]?.filePath) ||
+      (targetPart && compositeVehicleParts?.[targetPart]?.__filePath);
+
+    let targetLine = null;
+    if (el.item?.__meta?.range) {
+      targetLine = el.item.__meta.range[0] + 1;
+    }
+
+    ensureFileOpenAndJump(resolvedFilePath, targetLine, targetName);
+  }, [workspaceIndex, compositeVehicleParts, ensureFileOpenAndJump]);
+
+  // Focus mechanical component (device, hydro, mount) in 3D Viewport
+  const handleFocusMechanicalIn3D = useCallback((nodeId, options = {}) => {
+    // 1. Ensure assembly 3D source is active so all vehicle parts are rendered
+    if (compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0) {
+      if (viewportSource !== 'assembly') {
+        setViewportSource('assembly');
+      }
+    } else if (options.filePath) {
+      // Standalone mode: ensure file is open
+      const activeFilePath = (activeTabRef.current || activeTab)?.filePath;
+      if (!activeFilePath || activeFilePath.replace(/\\/g, '/') !== options.filePath.replace(/\\/g, '/')) {
+        handleOpenFile(options.filePath);
+      }
+    }
+
+    // 2. Select the bound 3D node(s)
+    if (options.allBoundNodes && options.allBoundNodes.length > 1) {
+      setSelectedNodeId(options.allBoundNodes[0]);
+      setMultiSelectedNodes(options.allBoundNodes);
+    } else if (nodeId) {
+      setSelectedNodeId(nodeId);
+      setMultiSelectedNodes([]);
+    } else {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+    }
+
+    // 3. Select beam if it's a hydro or mount with 2 anchor nodes
+    if (options.otherNodeId && nodeId) {
+      setSelectedBeamInfo({
+        id1: nodeId,
+        id2: options.otherNodeId,
+        partName: options.partName
+      });
+      setSelectedSurfaceInfo(null);
+    } else {
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(null);
+    }
+
+    // 4. Highlight correlated submesh if available
+    if (options.boundMeshes && options.boundMeshes.length > 0) {
+      setHighlightedSubmesh(options.boundMeshes[0]);
+    }
+
+    // 5. Trigger smooth 3D camera centering and framing
+    setFocusCameraTrigger({
+      targetNodeId: nodeId || (options.allBoundNodes?.[0] || null),
+      targetBeam: options.otherNodeId && nodeId ? { id1: nodeId, id2: options.otherNodeId } : null,
+      targetSubmesh: options.boundMeshes?.[0] || null,
+      timestamp: Date.now()
+    });
+  }, [compositeVehicleParts, viewportSource, handleOpenFile]);
 
   // Scan and Index vehicle mod directory for parts, slots, and .pc configs
   const scanAndIndexWorkspace = useCallback(async (folderPath) => {
@@ -2193,6 +2810,14 @@ export function App() {
       if (window.jbeamAPI?.openFolderDialog) {
         const res = await window.jbeamAPI.openFolderDialog();
         if (!res.canceled && res.folderPath) {
+          // If caution notice not permanently acknowledged for this version, prompt on folder open
+          try {
+            const suppressed = localStorage.getItem('jbeam_beta_caution_suppressed_version');
+            if (suppressed !== APP_VERSION) {
+              setShowBetaCaution(true);
+            }
+          } catch (e) {}
+
           setWorkspacePath(res.folderPath);
           setWorkspaceFiles(res.files || []);
           scanAndIndexWorkspace(res.folderPath);
@@ -2211,6 +2836,12 @@ export function App() {
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
           if (files.length > 0) {
+            try {
+              const suppressed = localStorage.getItem('jbeam_beta_caution_suppressed_version');
+              if (suppressed !== APP_VERSION) {
+                setShowBetaCaution(true);
+              }
+            } catch (err) {}
             const tree = buildTreeFromBrowserFiles(files);
             const folderName = files[0].webkitRelativePath?.split('/')[0] || 'Mod Workspace';
             setWorkspacePath(folderName);
@@ -2262,7 +2893,6 @@ export function App() {
     setActiveConfigName('');
     setActiveRootPart('');
     setPartVisibility({});
-    setAssemblyTree(null);
     setValidationResult({ isValid: true, problems: [], parts: {} });
     setSelectedNodeId(null);
     setSelectedBeamInfo(null);
@@ -2349,14 +2979,30 @@ export function App() {
       const remaining = prev.filter(t => t.id !== tabId);
       if (remaining.length === 0) {
         setActiveTabId(null);
+        setSelectedNodeId(null);
+        setSelectedBeamInfo(null);
+        setSelectedSurfaceInfo(null);
+        setMultiSelectedNodes([]);
+        setActiveTool('select');
         return [];
       }
       if (activeTabId === tabId) {
         setActiveTabId(remaining[remaining.length - 1].id);
+        setSelectedNodeId(null);
+        setSelectedBeamInfo(null);
+        setSelectedSurfaceInfo(null);
+        setMultiSelectedNodes([]);
+        setCodeHoveredElement(null);
+        setCodeSelectedElements(null);
       }
       return remaining;
     });
     setUnsavedModalTab(null);
+  }, [activeTabId]);
+
+  useEffect(() => {
+    setCodeHoveredElement(null);
+    setCodeSelectedElements(null);
   }, [activeTabId]);
 
   const handleCloseTab = useCallback((tabId) => {
@@ -2411,15 +3057,15 @@ export function App() {
     setUnsavedModalTab(null);
   }, []);
 
-  const handleCreateWorkspaceFile = useCallback(async (fileName) => {
+  const handleCreateWorkspaceFile = useCallback(async (fileName, customContent = null) => {
     if (!fileName || !fileName.trim()) return;
     let cleanName = fileName.trim();
     if (!cleanName.includes('.')) {
       cleanName += '.jbeam';
     }
 
-    let defaultContent = '';
-    if (cleanName.endsWith('.jbeam')) {
+    let defaultContent = customContent !== null ? customContent : '';
+    if (customContent === null && cleanName.endsWith('.jbeam')) {
       const partKey = cleanName.replace(/\.jbeam$/, '').toLowerCase().replace(/[^a-z0-9_]/g, '_');
       defaultContent = `{\n  "${partKey}": {\n    "information": {\n      "authors": "Modder",\n      "name": "${cleanName.replace(/\.jbeam$/, '')}"\n    },\n    "slotType": "${partKey}",\n    "nodes": [\n      ["id", "posX", "posY", "posZ"],\n      {"nodeWeight": 5.0},\n      {"frictionCoef": 0.5},\n      {"group": "${partKey}"}\n    ],\n    "beams": [\n      ["id1:", "id2:"],\n      {"beamSpring": 1501000, "beamDamp": 120}\n    ]\n  }\n}\n`;
     }
@@ -2863,22 +3509,6 @@ export function App() {
   }, [workspacePath, activeTab, scanAndIndexWorkspace]);
 
   const renderViewportContent = () => {
-    if (viewportSource === 'powertrain') {
-      const activePartKey = Object.keys(activeViewportParts || {}).filter(k => k !== '__meta')[0] || 'main';
-      return (
-        <PowertrainStudio
-          jbeamParts={activeViewportParts}
-          compositeVehicleParts={compositeVehicleParts}
-          onApplyEdit={(newContent) => handleEditorChange(newContent)}
-          activeDocumentText={activeTab?.content || ''}
-          activePartName={activePartKey}
-          onReturnToViewport={() => setViewportSource('activeDocument')}
-          workspacePath={workspacePath}
-          onCreateFiles={handleCreateFiles}
-        />
-      );
-    }
-
     return (
       <JBeamViewport
         jbeamParts={activeViewportParts}
@@ -2906,6 +3536,7 @@ export function App() {
         onExtrudeNodes={handleExtrudeNodes}
         onDeleteSelected={handleDeleteSelected}
         codeHoveredElement={codeHoveredElement}
+        codeSelectedElements={codeSelectedElements}
         nonActiveViewType={nonActiveViewType}
         onChangeNonActiveViewType={setNonActiveViewType}
         multiSelectedNodes={multiSelectedNodes}
@@ -2915,12 +3546,26 @@ export function App() {
         onLoadVisualMesh={handleLoadDaeContent}
         onUnloadVisualMesh={handleUnloadDae}
         discoveredDaeFiles={discoveredDaeFiles}
+        selectedDaePath={selectedDaePath}
         onSelectProjectDae={handleSelectDiscoveredDae}
         onOpenDaeDialog={handleOpenDaeDialog}
         highlightedSubmesh={highlightedSubmesh}
         onHighlightSubmesh={handleHighlightSubmesh}
-        onUpdateSubmeshNames={setVisualMeshSubnames}
+        onUpdateSubmeshNames={handleUpdateSubmeshNames}
         onUpdateSubmeshDetails={setVisualMeshSubmeshDetails}
+        spawnedMeshNames={spawnedMeshNames}
+        isMeshesTabActive={!isViewportDetached && leftTab === 'meshes'}
+        isMechanicalTabActive={leftTab === 'mechanical'}
+        focusCameraTrigger={focusCameraTrigger}
+        onOpenMechanicalWorkspace={() => {
+          setLeftTab('mechanical');
+          setBottomPanelTab('mechanical');
+          setLeftSidebarOpen(true);
+        }}
+        meshOpacity={meshOpacity}
+        onMeshOpacityChange={setMeshOpacity}
+        meshWireframe={meshWireframe}
+        onMeshWireframeChange={setMeshWireframe}
         isolateMatchingMesh={isolateMatchingMesh}
         onToggleIsolateMesh={() => setIsolateMatchingMesh(prev => !prev)}
         viewportSource={viewportSource}
@@ -2976,7 +3621,13 @@ export function App() {
     visualMeshDaeText,
     isolateMatchingMesh,
     highlightedSubmesh,
-    viewportSource
+    viewportSource,
+    workspacePath,
+    discoveredDaeFiles,
+    selectedDaePath,
+    spawnedMeshNames: Array.from(spawnedMeshNames),
+    meshOpacity,
+    meshWireframe
   };
 
   actionHandlersRef.current = {
@@ -3016,7 +3667,16 @@ export function App() {
     setIsViewportDetached,
     setDetachedWindow,
     setLeftSidebarOpen,
-    setViewportSource
+    setViewportSource,
+    handleSelectDiscoveredDae,
+    handleLoadDaeContent,
+    handleUploadDaeFile,
+    handleToggleSpawnMesh,
+    handleSpawnAllMeshes,
+    handleDespawnAllMeshes,
+    setMeshOpacity,
+    setMeshWireframe,
+    handleCreateWorkspaceFile
   };
 
   // Setup BroadcastChannel in Main Window for Multi-Window Real-Time Live Sync (Mount Once)
@@ -3139,6 +3799,33 @@ export function App() {
         case 'UNLOAD_DAE':
           h.handleUnloadDae?.();
           break;
+        case 'SELECT_DISCOVERED_DAE':
+          h.handleSelectDiscoveredDae?.(data.daePath);
+          break;
+        case 'LOAD_DAE_CONTENT':
+          h.handleLoadDaeContent?.(data.content, data.name, data.fullPath);
+          break;
+        case 'UPLOAD_DAE_FILE':
+          h.handleUploadDaeFile?.(data.fileObj);
+          break;
+        case 'TOGGLE_SPAWN_MESH':
+          h.handleToggleSpawnMesh?.(data.meshName);
+          break;
+        case 'SPAWN_ALL_MESHES':
+          h.handleSpawnAllMeshes?.();
+          break;
+        case 'DESPAWN_ALL_MESHES':
+          h.handleDespawnAllMeshes?.();
+          break;
+        case 'SET_MESH_OPACITY':
+          h.setMeshOpacity?.(data.opacity);
+          break;
+        case 'SET_MESH_WIREFRAME':
+          h.setMeshWireframe?.(data.wireframe);
+          break;
+        case 'CREATE_JBEAM_FOR_MESH':
+          h.handleCreateWorkspaceFile?.(data.fileName, data.content);
+          break;
         case 'REATTACH_REQUESTED':
           h.setIsViewportDetached?.(false);
           h.setDetachedWindow?.(null);
@@ -3194,7 +3881,13 @@ export function App() {
         visualMeshDaeText,
         isolateMatchingMesh,
         highlightedSubmesh,
-        viewportSource
+        viewportSource,
+        workspacePath,
+        discoveredDaeFiles,
+        selectedDaePath,
+        spawnedMeshNames: Array.from(spawnedMeshNames),
+        meshOpacity,
+        meshWireframe
       });
     } catch (e) {}
   }, [
@@ -3219,7 +3912,12 @@ export function App() {
     visualMeshSubmeshDetails,
     visualMeshDaeText,
     isolateMatchingMesh,
-    highlightedSubmesh
+    highlightedSubmesh,
+    discoveredDaeFiles,
+    selectedDaePath,
+    spawnedMeshNames,
+    meshOpacity,
+    meshWireframe
   ]);
 
   // Live broadcast cursor / selection changes to detached window
@@ -3248,6 +3946,8 @@ export function App() {
     setDetachedWindow(null);
     setIsViewportDetached(false);
     setLeftSidebarOpen(true);
+    setRightSidebarOpen(true);
+    setRightTab('inspector');
   }, [detachedWindow]);
 
   const handleToggleDetachViewport = useCallback(() => {
@@ -3266,10 +3966,10 @@ export function App() {
       if (newWin) {
         setDetachedWindow(newWin);
         setIsViewportDetached(true);
-        // Code is the main center area; right sidebar has files and assembly
-        setLeftSidebarOpen(false);
-        setRightSidebarOpen(true);
-        setDetachedRightTab('files');
+        // Code is the main center area; left sidebar has files explorer
+        setLeftSidebarOpen(true);
+        setLeftTab('files');
+        setRightSidebarOpen(false);
 
         // Check window.closed to detect when detached window is closed by browser or OS
         const winTimer = setInterval(() => {
@@ -3416,6 +4116,8 @@ export function App() {
       onSelectPartForSlot={handleSelectPartForSlot}
       onOpenPartInEditor={handleOpenPartInEditor}
       isAssembling={isAssembling}
+      viewportSource={viewportSource}
+      onChangeViewportSource={setViewportSource}
       totalAssembledStats={{
         parts: compositeVehicleParts ? Object.keys(compositeVehicleParts).length : 0,
         nodes: nodeCount,
@@ -3424,11 +4126,68 @@ export function App() {
     />
   );
 
+  const renderDaeMeshPanel = () => (
+    <DaeMeshPanel
+      workspacePath={workspacePath}
+      discoveredDaeFiles={discoveredDaeFiles}
+      selectedDaePath={selectedDaePath}
+      onSelectDaePath={handleSelectDiscoveredDae}
+      onLoadDaeContent={handleLoadDaeContent}
+      onUploadDaeFile={handleUploadDaeFile}
+      onOpenDaeDialog={handleOpenDaeDialog}
+      visualMeshName={visualMeshName}
+      visualMeshSubnames={visualMeshSubnames}
+      visualMeshSubmeshDetails={visualMeshSubmeshDetails}
+      spawnedMeshNames={spawnedMeshNames}
+      onToggleSpawnMesh={handleToggleSpawnMesh}
+      onSpawnAll={handleSpawnAllMeshes}
+      onDespawnAll={handleDespawnAllMeshes}
+      meshOpacity={meshOpacity}
+      onMeshOpacityChange={setMeshOpacity}
+      meshWireframe={meshWireframe}
+      onMeshWireframeChange={setMeshWireframe}
+      onCreateJBeamForMesh={async ({ fileName, content, targetMesh, targetMeshes }) => {
+        await handleCreateWorkspaceFile(fileName, content);
+        const meshesToAdd = (targetMeshes && targetMeshes.length > 0)
+          ? targetMeshes
+          : (targetMesh ? [targetMesh] : []);
+        if (meshesToAdd.length > 0) {
+          setSpawnedMeshNames(prev => new Set([...prev, ...meshesToAdd]));
+        }
+      }}
+    />
+  );
+
+  const renderMechanicalWorkspace = () => {
+    const activePartKey = Object.keys(activeViewportParts || {}).filter(k => k !== '__meta')[0] || 'main';
+    return (
+      <MechanicalWorkspace
+        jbeamParts={activeViewportParts}
+        compositeVehicleParts={compositeVehicleParts}
+        workspaceIndex={workspaceIndex}
+        activeDocumentText={activeTab?.content || ''}
+        activePartName={activePartKey}
+        workspacePath={workspacePath}
+        onNavigateToElement={handleJumpToMechanicalElement}
+        onFocusNodeIn3D={handleFocusMechanicalIn3D}
+        onSelectSubmesh={(meshName) => {
+          setHighlightedSubmesh(meshName);
+        }}
+        onIsolateMesh={(meshName) => {
+          setHighlightedSubmesh(meshName);
+          setIsolateMatchingMesh(true);
+        }}
+      />
+    );
+  };
+
   const renderInspector = () => (
     <ElementInspector
       selectedNodeId={selectedNodeId}
       selectedBeamInfo={selectedBeamInfo}
       selectedSurfaceInfo={selectedSurfaceInfo}
+      multiSelectedNodes={multiSelectedNodes}
+      onMultiSelectChange={setMultiSelectedNodes}
       jbeamParts={activeViewportParts}
       onNodeCoordinateChange={handleCommitNodeMove}
       onRenameNode={handleRenameNode}
@@ -3448,6 +4207,9 @@ export function App() {
       highlightedSubmesh={highlightedSubmesh}
       onHighlightSubmesh={handleHighlightSubmesh}
       onSelectNode={handleSelectNode}
+      onSelectBeam={handleSelectBeam}
+      onUpdateBeamProperties={handleUpdateBeamProperties}
+      onUpdateNodeProperties={handleUpdateNodeProperties}
       isolateMatchingMesh={isolateMatchingMesh}
       onToggleIsolateMesh={() => setIsolateMatchingMesh(prev => !prev)}
       batchRenamePattern={batchRenamePattern}
@@ -3507,6 +4269,11 @@ export function App() {
           setViewportSource(src);
           setIsolateMatchingMesh(true);
         }}
+        onSelectLeftTab={(tab) => {
+          setLeftTab(tab);
+          if (tab === 'mechanical') setBottomPanelTab('mechanical');
+          setLeftSidebarOpen(true);
+        }}
         isViewportDetached={isViewportDetached}
         onDetachViewport={handleToggleDetachViewport}
         onCheckForUpdates={async () => {
@@ -3545,74 +4312,105 @@ export function App() {
           }
         }}
       >
-        {/* Left Sidebar (Only in Docked Mode: Code, Files & Assembly) with Smooth Ease-Out Transition */}
-        {!isViewportDetached && (
-          <aside
-            className={`left-sidebar ${leftSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
-            style={{ width: leftSidebarOpen ? `${leftSidebarWidth}px` : '46px' }}
+        {/* Left Sidebar: Primary Workspace Navigation (Files in Detached, Full Suite in Docked) with Smooth Ease-Out Transition */}
+        <aside
+          className={`left-sidebar ${leftSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
+          style={{ width: leftSidebarOpen ? `${leftSidebarWidth}px` : '46px' }}
+        >
+          {/* Full Expanded Sidebar Content */}
+          <div
+            className="sidebar-pane-expanded"
+            style={{ width: `${leftSidebarWidth}px` }}
+            aria-hidden={!leftSidebarOpen}
           >
-            {/* Full Expanded Sidebar Content */}
-            <div
-              className="sidebar-pane-expanded"
-              style={{ width: `${leftSidebarWidth}px` }}
-              aria-hidden={!leftSidebarOpen}
-            >
-              <div className="sidebar-tabs-bar">
-                <div className="sidebar-tabs">
+            <div className="sidebar-tabs-bar">
+              <div className="sidebar-tabs">
+                {!isViewportDetached && (
                   <button
-                    onClick={() => setLeftTab('code')}
+                    onClick={() => handleSwitchLeftTab('code')}
                     className={`sidebar-tab-btn ${leftTab === 'code' ? 'active' : ''}`}
                     title="JBeam Code Editor"
                   >
                     <CodeIcon size={17} />
                     <span>Code</span>
                   </button>
-                  <button
-                    onClick={() => setLeftTab('files')}
-                    className={`sidebar-tab-btn ${leftTab === 'files' ? 'active' : ''}`}
-                    title="Project File Explorer"
-                  >
-                    <FolderIcon size={17} />
-                    <span>Files</span>
-                  </button>
-                  <button
-                    onClick={() => setLeftTab('assembly')}
-                    className={`sidebar-tab-btn ${leftTab === 'assembly' ? 'active' : ''}`}
-                    title="Vehicle Assembly & Slots"
-                  >
-                    <AssemblyIcon size={17} />
-                    <span>Assembly {workspaceIndex.configurations.length > 0 ? `(${workspaceIndex.configurations.length})` : ''}</span>
-                  </button>
-                </div>
+                )}
                 <button
-                  onClick={() => setLeftSidebarOpen(false)}
-                  className="sidebar-toggle-close-btn"
-                  title="Collapse Left Sidebar (Ctrl+B)"
+                  onClick={() => handleSwitchLeftTab('files')}
+                  className={`sidebar-tab-btn ${leftTab === 'files' ? 'active' : ''}`}
+                  title="Project File Explorer"
                 >
-                  <ChevronLeftIcon size={15} />
+                  <FolderIcon size={17} />
+                  <span>Files</span>
+                </button>
+                {!isViewportDetached && (
+                  <>
+                    <button
+                      onClick={() => handleSwitchLeftTab('assembly')}
+                      className={`sidebar-tab-btn ${leftTab === 'assembly' ? 'active' : ''}`}
+                      title="Vehicle Assembly & Slots"
+                    >
+                      <AssemblyIcon size={17} />
+                      <span>Assembly {workspaceIndex.configurations.length > 0 ? `(${workspaceIndex.configurations.length})` : ''}</span>
+                    </button>
+                    <button
+                      onClick={() => handleSwitchLeftTab('meshes')}
+                      className={`sidebar-tab-btn ${leftTab === 'meshes' ? 'active' : ''}`}
+                      title="3D Models & DAE Submeshes"
+                    >
+                      <CubeIcon size={17} />
+                      <span>Meshes</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    handleSwitchLeftTab('mechanical');
+                    setBottomPanelTab('mechanical');
+                  }}
+                  className={`sidebar-tab-btn ${leftTab === 'mechanical' ? 'active' : ''}`}
+                  title="Mechanical Workspace (Powertrain, Drivetrain & Hydros)"
+                >
+                  <MechanicalIcon size={17} />
+                  <span>Mechanical</span>
                 </button>
               </div>
-
-              <div className="sidebar-content">
-                {leftTab === 'code'
-                  ? renderCodeEditorPanel(false)
-                  : leftTab === 'files'
-                  ? renderProjectFiles()
-                  : renderAssemblyManager()}
-              </div>
+              <button
+                onClick={() => setLeftSidebarOpen(false)}
+                className="sidebar-toggle-close-btn"
+                title="Collapse Left Sidebar (Ctrl+B)"
+              >
+                <ChevronLeftIcon size={15} />
+              </button>
             </div>
 
-            {/* Collapsed Activity Strip */}
-            <div
-              className="collapsed-sidebar-strip left-collapsed-strip"
-              title="Primary Sidebar"
-              aria-hidden={leftSidebarOpen}
-            >
-              <div className="collapsed-strip-items">
+            <div className="sidebar-content">
+              {leftTab === 'code' && !isViewportDetached
+                ? renderCodeEditorPanel(false)
+                : leftTab === 'files'
+                ? renderProjectFiles()
+                : leftTab === 'assembly' && !isViewportDetached
+                ? renderAssemblyManager()
+                : leftTab === 'meshes' && !isViewportDetached
+                ? renderDaeMeshPanel()
+                : leftTab === 'mechanical'
+                ? renderMechanicalWorkspace()
+                : renderProjectFiles()}
+            </div>
+          </div>
+
+          {/* Collapsed Activity Strip */}
+          <div
+            className="collapsed-sidebar-strip left-collapsed-strip"
+            title="Primary Sidebar"
+            aria-hidden={leftSidebarOpen}
+          >
+            <div className="collapsed-strip-items">
+              {!isViewportDetached && (
                 <button
                   className={`collapsed-tab-btn ${leftTab === 'code' ? 'active' : ''}`}
                   onClick={() => {
-                    setLeftTab('code');
+                    handleSwitchLeftTab('code');
                     setLeftSidebarOpen(true);
                   }}
                   title="JBeam Code Editor (Ctrl+B)"
@@ -3620,54 +4418,79 @@ export function App() {
                 >
                   <CodeIcon size={18} />
                 </button>
-                <button
-                  className={`collapsed-tab-btn ${leftTab === 'files' ? 'active' : ''}`}
-                  onClick={() => {
-                    setLeftTab('files');
-                    setLeftSidebarOpen(true);
-                  }}
-                  title="Project File Explorer"
-                  aria-label="Files Explorer"
-                >
-                  <FolderIcon size={18} />
-                </button>
-                <button
-                  className={`collapsed-tab-btn ${leftTab === 'assembly' ? 'active' : ''}`}
-                  onClick={() => {
-                    setLeftTab('assembly');
-                    setLeftSidebarOpen(true);
-                  }}
-                  title={`Vehicle Assembly & Slots ${workspaceIndex.configurations.length > 0 ? `(${workspaceIndex.configurations.length})` : ''}`}
-                  aria-label="Vehicle Assembly"
-                >
-                  <AssemblyIcon size={18} />
-                  {workspaceIndex.configurations.length > 0 && (
-                    <span className="collapsed-badge-dot" />
-                  )}
-                </button>
-              </div>
-
+              )}
               <button
-                type="button"
-                className="collapsed-strip-expand-btn"
-                onClick={() => setLeftSidebarOpen(true)}
-                title="Expand Primary Sidebar (Ctrl+B)"
-                aria-label="Expand Primary Sidebar"
+                className={`collapsed-tab-btn ${leftTab === 'files' ? 'active' : ''}`}
+                onClick={() => {
+                  handleSwitchLeftTab('files');
+                  setLeftSidebarOpen(true);
+                }}
+                title="Project File Explorer"
+                aria-label="Files Explorer"
               >
-                <ChevronRightIcon size={14} />
+                <FolderIcon size={18} />
+              </button>
+              {!isViewportDetached && (
+                <>
+                  <button
+                    className={`collapsed-tab-btn ${leftTab === 'assembly' ? 'active' : ''}`}
+                    onClick={() => {
+                      handleSwitchLeftTab('assembly');
+                      setLeftSidebarOpen(true);
+                    }}
+                    title={`Vehicle Assembly & Slots ${workspaceIndex.configurations.length > 0 ? `(${workspaceIndex.configurations.length})` : ''}`}
+                    aria-label="Vehicle Assembly"
+                  >
+                    <AssemblyIcon size={18} />
+                    {workspaceIndex.configurations.length > 0 && (
+                      <span className="collapsed-badge-dot" />
+                    )}
+                  </button>
+                  <button
+                    className={`collapsed-tab-btn ${leftTab === 'meshes' ? 'active' : ''}`}
+                    onClick={() => {
+                      handleSwitchLeftTab('meshes');
+                      setLeftSidebarOpen(true);
+                    }}
+                    title="3D Models & DAE Submeshes"
+                    aria-label="3D Meshes"
+                  >
+                    <CubeIcon size={18} />
+                  </button>
+                </>
+              )}
+              <button
+                className={`collapsed-tab-btn ${leftTab === 'mechanical' ? 'active' : ''}`}
+                onClick={() => {
+                  handleSwitchLeftTab('mechanical');
+                  setBottomPanelTab('mechanical');
+                  setLeftSidebarOpen(true);
+                }}
+                title="Mechanical Workspace (Powertrain, Drivetrain & Hydros)"
+                aria-label="Mechanical Workspace"
+              >
+                <MechanicalIcon size={18} />
               </button>
             </div>
-          </aside>
-        )}
+
+            <button
+              type="button"
+              className="collapsed-strip-expand-btn"
+              onClick={() => setLeftSidebarOpen(true)}
+              title="Expand Primary Sidebar (Ctrl+B)"
+              aria-label="Expand Primary Sidebar"
+            >
+              <ChevronRightIcon size={14} />
+            </button>
+          </div>
+        </aside>
 
         {/* Resizer Handle between Left Sidebar and Center */}
-        {!isViewportDetached && (
-          <div
-            className={`resizer-col left-resizer ${leftSidebarOpen ? 'is-open' : 'is-collapsed'}`}
-            onPointerDown={leftSidebarOpen ? (e) => handleStartResize('left-sidebar', e) : undefined}
-            title={leftSidebarOpen ? "Drag to resize left sidebar" : undefined}
-          />
-        )}
+        <div
+          className={`resizer-col left-resizer ${leftSidebarOpen ? 'is-open' : 'is-collapsed'}`}
+          onPointerDown={leftSidebarOpen ? (e) => handleStartResize('left-sidebar', e) : undefined}
+          title={leftSidebarOpen ? "Drag to resize left sidebar" : undefined}
+        />
 
         {/* Center Main Workspace - Code Editor when Detached, 3D Viewport when Docked */}
         <div className="center-workspace">
@@ -3690,196 +4513,152 @@ export function App() {
             />
           )}
 
-          {/* Bottom Panel: Problems & Validation */}
+          {/* Bottom Panel: Problems, Validation & Mechanical Instruments */}
           {bottomPanelOpen && (
             <div className="bottom-panel" style={{ height: `${bottomPanelHeight}px` }}>
               <div className="bottom-panel-header">
-                <span className="panel-tab">Problems ({validationResult.problems.length})</span>
+                <div className="bottom-panel-tabs">
+                  <button
+                    type="button"
+                    className={`panel-tab ${bottomPanelTab === 'problems' ? 'active' : ''}`}
+                    onClick={() => setBottomPanelTab('problems')}
+                  >
+                    <span>Problems</span>
+                    <span className="panel-tab-badge">{validationResult.problems.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`panel-tab ${bottomPanelTab === 'mechanical' ? 'active' : ''}`}
+                    onClick={() => setBottomPanelTab('mechanical')}
+                  >
+                    <MechanicalIcon size={13} />
+                    <span>Mechanical Instruments</span>
+                  </button>
+                </div>
                 <button
                   onClick={() => setBottomPanelOpen(false)}
                   className="close-panel-btn"
-                  title="Close Problems Panel (Ctrl+`)"
+                  title="Close Bottom Panel (Ctrl+`)"
                 >
                   <CloseIcon size={13} />
                 </button>
               </div>
               <div className="bottom-panel-body">
-                <ProblemsPanel
-                  problems={validationResult.problems}
-                  onNavigateToProblem={handleNavigateToProblem}
-                  logEntries={gameLogEntries}
-                  onLoadLogContent={setGameLogEntries}
-                />
+                {bottomPanelTab === 'mechanical' ? (
+                  <MechanicalBottomDock
+                    overview={extractMechanicalOverview(activeViewportParts)}
+                  />
+                ) : (
+                  <ProblemsPanel
+                    problems={validationResult.problems}
+                    onNavigateToProblem={handleNavigateToProblem}
+                    logEntries={gameLogEntries}
+                    onLoadLogContent={setGameLogEntries}
+                  />
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Resizer Handle between Center and Right Sidebar */}
-        <div
-          className={`resizer-col right-resizer ${rightSidebarOpen ? 'is-open' : 'is-collapsed'}`}
-          onPointerDown={rightSidebarOpen ? (e) => handleStartResize('right-sidebar', e) : undefined}
-          title={rightSidebarOpen ? "Drag to resize right sidebar" : undefined}
-        />
-
-        {/* Right Sidebar: Files & Assembly when Detached, Inspector & Structure when Docked with Smooth Ease-Out Transition */}
-        <aside
-          className={`right-sidebar ${rightSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
-          style={{ width: rightSidebarOpen ? `${rightSidebarWidth}px` : '46px' }}
-        >
-          {/* Full Expanded Sidebar Content */}
+        {/* Right Sidebar & Resizer (Only in Docked Mode: Inspector & Structure for 3D Viewport) */}
+        {!isViewportDetached && (
           <div
-            className="sidebar-pane-expanded"
-            style={{ width: `${rightSidebarWidth}px` }}
-            aria-hidden={!rightSidebarOpen}
+            className={`resizer-col right-resizer ${rightSidebarOpen ? 'is-open' : 'is-collapsed'}`}
+            onPointerDown={rightSidebarOpen ? (e) => handleStartResize('right-sidebar', e) : undefined}
+            title={rightSidebarOpen ? "Drag to resize right sidebar" : undefined}
+          />
+        )}
+
+        {!isViewportDetached && (
+          <aside
+            className={`right-sidebar ${rightSidebarOpen ? 'is-expanded' : 'is-collapsed'}`}
+            style={{ width: rightSidebarOpen ? `${rightSidebarWidth}px` : '46px' }}
           >
-            <div className="sidebar-tabs-bar">
-              <button
-                onClick={() => setRightSidebarOpen(false)}
-                className="sidebar-toggle-close-btn"
-                title="Collapse Right Sidebar (Ctrl+J)"
-              >
-                <ChevronRightIcon size={15} />
-              </button>
-              <div className="sidebar-tabs">
-                {isViewportDetached ? (
-                  <>
-                    <button
-                      onClick={() => setDetachedRightTab('files')}
-                      className={`sidebar-tab-btn ${detachedRightTab === 'files' ? 'active' : ''}`}
-                      title="Project File Explorer"
-                    >
-                      <FolderIcon size={17} />
-                      <span>Files</span>
-                    </button>
-                    <button
-                      onClick={() => setDetachedRightTab('assembly')}
-                      className={`sidebar-tab-btn ${detachedRightTab === 'assembly' ? 'active' : ''}`}
-                      title="Vehicle Assembly & Slots"
-                    >
-                      <AssemblyIcon size={17} />
-                      <span>Assembly {workspaceIndex.configurations.length > 0 ? `(${workspaceIndex.configurations.length})` : ''}</span>
-                    </button>
-                    <button
-                      onClick={() => setDetachedRightTab('inspector')}
-                      className={`sidebar-tab-btn ${detachedRightTab === 'inspector' ? 'active' : ''}`}
-                      title="Element Inspector"
-                    >
-                      <InspectorIcon size={17} />
-                      <span>Inspector</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setRightTab('inspector')}
-                      className={`sidebar-tab-btn ${rightTab === 'inspector' ? 'active' : ''}`}
-                      title="Element Inspector"
-                    >
-                      <InspectorIcon size={17} />
-                      <span>Inspector</span>
-                    </button>
-                    <button
-                      onClick={() => setRightTab('structure')}
-                      className={`sidebar-tab-btn ${rightTab === 'structure' ? 'active' : ''}`}
-                      title="Structure Tree"
-                    >
-                      <StructureIcon size={17} />
-                      <span>Structure ({nodeCount})</span>
-                    </button>
-                  </>
-                )}
+            {/* Full Expanded Sidebar Content */}
+            <div
+              className="sidebar-pane-expanded"
+              style={{ width: `${rightSidebarWidth}px` }}
+              aria-hidden={!rightSidebarOpen}
+            >
+              <div className="sidebar-tabs-bar">
+                <button
+                  onClick={() => setRightSidebarOpen(false)}
+                  className="sidebar-toggle-close-btn"
+                  title="Collapse Right Sidebar (Ctrl+J)"
+                >
+                  <ChevronRightIcon size={15} />
+                </button>
+                <div className="sidebar-tabs">
+                  <button
+                    onClick={() => setRightTab('inspector')}
+                    className={`sidebar-tab-btn ${rightTab === 'inspector' ? 'active' : ''}`}
+                    title="Element Inspector"
+                  >
+                    <InspectorIcon size={17} />
+                    <span>Inspector</span>
+                  </button>
+                  <button
+                    onClick={() => setRightTab('structure')}
+                    className={`sidebar-tab-btn ${rightTab === 'structure' ? 'active' : ''}`}
+                    title="Structure Tree"
+                  >
+                    <StructureIcon size={17} />
+                    <span>Structure ({nodeCount})</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="sidebar-content">
+                {rightTab === 'inspector'
+                  ? renderInspector()
+                  : renderStructureTree()}
               </div>
             </div>
 
-            <div className="sidebar-content">
-              {isViewportDetached ? (
-                detachedRightTab === 'files'
-                  ? renderProjectFiles()
-                  : detachedRightTab === 'assembly'
-                  ? renderAssemblyManager()
-                  : detachedRightTab === 'inspector'
-                  ? renderInspector()
-                  : renderStructureTree()
-              ) : (
-                rightTab === 'inspector'
-                  ? renderInspector()
-                  : renderStructureTree()
-              )}
-            </div>
-          </div>
-
-          {/* Collapsed Activity Strip */}
-          <div
-            className="collapsed-sidebar-strip right-collapsed-strip"
-            title="Secondary Sidebar"
-            aria-hidden={rightSidebarOpen}
-          >
-            <div className="collapsed-strip-items">
-              {isViewportDetached ? (
-                <>
-                  <button
-                    className={`collapsed-tab-btn ${detachedRightTab === 'files' ? 'active' : ''}`}
-                    onClick={() => {
-                      setDetachedRightTab('files');
-                      setRightSidebarOpen(true);
-                    }}
-                    title="Project Files Explorer"
-                    aria-label="Project Files"
-                  >
-                    <FolderIcon size={18} />
-                  </button>
-                  <button
-                    className={`collapsed-tab-btn ${detachedRightTab === 'assembly' ? 'active' : ''}`}
-                    onClick={() => {
-                      setDetachedRightTab('assembly');
-                      setRightSidebarOpen(true);
-                    }}
-                    title="Vehicle Assembly & Slots"
-                    aria-label="Vehicle Assembly"
-                  >
-                    <AssemblyIcon size={18} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    className={`collapsed-tab-btn ${rightTab === 'inspector' ? 'active' : ''}`}
-                    onClick={() => {
-                      setRightTab('inspector');
-                      setRightSidebarOpen(true);
-                    }}
-                    title="Element Inspector"
-                    aria-label="Element Inspector"
-                  >
-                    <InspectorIcon size={18} />
-                  </button>
-                  <button
-                    className={`collapsed-tab-btn ${rightTab === 'structure' ? 'active' : ''}`}
-                    onClick={() => {
-                      setRightTab('structure');
-                      setRightSidebarOpen(true);
-                    }}
-                    title={`Structure Tree (${nodeCount} nodes)`}
-                    aria-label="Structure Tree"
-                  >
-                    <StructureIcon size={18} />
-                  </button>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="collapsed-strip-expand-btn"
-              onClick={() => setRightSidebarOpen(true)}
-              title="Expand Secondary Sidebar (Ctrl+J)"
-              aria-label="Expand Secondary Sidebar"
+            {/* Collapsed Activity Strip */}
+            <div
+              className="collapsed-sidebar-strip right-collapsed-strip"
+              title="Secondary Sidebar"
+              aria-hidden={rightSidebarOpen}
             >
-              <ChevronLeftIcon size={14} />
-            </button>
-          </div>
-        </aside>
+              <div className="collapsed-strip-items">
+                <button
+                  className={`collapsed-tab-btn ${rightTab === 'inspector' ? 'active' : ''}`}
+                  onClick={() => {
+                    setRightTab('inspector');
+                    setRightSidebarOpen(true);
+                  }}
+                  title="Element Inspector"
+                  aria-label="Element Inspector"
+                >
+                  <InspectorIcon size={18} />
+                </button>
+                <button
+                  className={`collapsed-tab-btn ${rightTab === 'structure' ? 'active' : ''}`}
+                  onClick={() => {
+                    setRightTab('structure');
+                    setRightSidebarOpen(true);
+                  }}
+                  title={`Structure Tree (${nodeCount} nodes)`}
+                  aria-label="Structure Tree"
+                >
+                  <StructureIcon size={18} />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="collapsed-strip-expand-btn"
+                onClick={() => setRightSidebarOpen(true)}
+                title="Expand Secondary Sidebar (Ctrl+J)"
+                aria-label="Expand Secondary Sidebar"
+              >
+                <ChevronLeftIcon size={14} />
+              </button>
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* Bottom Status Bar */}
@@ -3903,7 +4682,6 @@ export function App() {
         isOpen={isNewVehicleModalOpen}
         onClose={() => setIsNewVehicleModalOpen(false)}
         currentWorkspacePath={workspacePath}
-        discoveredDaeFiles={discoveredDaeFiles}
         onVehicleCreated={handleVehicleProjectCreated}
       />
 
@@ -3921,6 +4699,14 @@ export function App() {
         onClose={() => setObjModalOpen(false)}
         activePartData={activeViewportParts ? Object.values(activeViewportParts).filter(p => p && typeof p === 'object')[0] : null}
         onImportJBeamText={(importedText, pName) => openContentAsTab(`${pName || 'imported'}.jbeam`, `${pName || 'imported'}.jbeam`, importedText)}
+      />
+
+      {/* Early Beta Safety Caution Notice Modal */}
+      <BetaCautionModal
+        isOpen={showBetaCaution}
+        version={APP_VERSION}
+        onClose={() => setShowBetaCaution(false)}
+        onAcknowledge={handleAcknowledgeCaution}
       />
 
       {/* Unsaved Changes Confirmation Dialog */}

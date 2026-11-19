@@ -28,8 +28,10 @@ import {
 function extractFromZip(zipRelPath) {
   const candidates = [
     path.resolve(process.cwd(), 'Blender-JBeam-Editor-main.zip'),
+    path.resolve(process.cwd(), '../.references/Blender-JBeam-Editor-main.zip'),
     path.resolve(process.cwd(), '../Blender-JBeam-Editor-main.zip'),
     path.resolve(process.cwd(), '../../Blender-JBeam-Editor-main.zip'),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1')), '../../.references/Blender-JBeam-Editor-main.zip'),
     path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([a-zA-Z]:)/, '$1')), '../../Blender-JBeam-Editor-main.zip')
   ];
   const zipPath = candidates.find(c => fs.existsSync(c)) || candidates[0];

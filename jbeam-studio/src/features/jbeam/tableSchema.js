@@ -319,6 +319,45 @@ function processPart(partName, part, diagnostics) {
     }
   }
 
+// Helper to check whether two beams between the same node pair are physically identical duplicates.
+// In BeamNG physics, parallel beams connecting the same two nodes are officially used for:
+// 1. Multi-stage progressive bumpstops (soft initial + hard bottom-out springs)
+// 2. Dual-rate / helper springs
+// 3. Staged damping velocity splits (low-speed vs high-speed)
+// 4. Staged breakgroups (sacrificial latch + secondary safety link)
+function areBeamsPhysicallyIdentical(b1, b2) {
+  if (!b1 || !b2) return false;
+  const t1 = b1.beamType || '|NORMAL';
+  const t2 = b2.beamType || '|NORMAL';
+  if (t1 !== t2) return false;
+  if ((b1.name || b2.name) && b1.name !== b2.name) return false;
+  if ((b1.breakGroup || b2.breakGroup) && b1.breakGroup !== b2.breakGroup) return false;
+
+  const physicalProps = [
+    'beamSpring', 'beamDamp', 'beamLimitSpring', 'beamLimitDamp', 'beamLimitDampRebound',
+    'beamDampVelocitySplit', 'beamDampFast', 'beamDampRebound', 'beamDampReboundFast',
+    'shortBoundRange', 'longBoundRange', 'boundZone', 'beamDeform', 'beamStrength',
+    'dampCutoffHz', 'beamPrecompression', 'beamLongBound', 'beamShortBound'
+  ];
+
+  for (const prop of physicalProps) {
+    const v1 = b1[prop];
+    const v2 = b2[prop];
+    if (v1 !== undefined && v2 !== undefined && v1 !== v2) {
+      const n1 = typeof v1 === 'number' ? v1 : parseFloat(v1);
+      const n2 = typeof v2 === 'number' ? v2 : parseFloat(v2);
+      if (!isNaN(n1) && !isNaN(n2)) {
+        if (Math.abs(n1 - n2) > 1e-5) return false;
+      } else {
+        return false;
+      }
+    } else if ((v1 !== undefined && v1 !== '') !== (v2 !== undefined && v2 !== '')) {
+      return false;
+    }
+  }
+  return true;
+}
+
   // Check duplicate beams
   if (part?.beams) {
     const seenBeams = {};
@@ -327,13 +366,18 @@ function processPart(partName, part, diagnostics) {
         const beam = part.beams[beamKey];
         if (beam && beam['id1:'] && beam['id2:']) {
           const [sortedId1, sortedId2] = [beam['id1:'], beam['id2:']].sort();
-          let bType = beam.beamType || '|NORMAL';
-          const beamIdentifier = `${sortedId1}_${sortedId2}_${bType}`;
+          const pairKey = `${sortedId1}_${sortedId2}`;
 
-          if (beamIdentifier in seenBeams) {
-            diagnostics.push(['warning', `Duplicate beam: ${sortedId1}, ${sortedId2}`, beam.__meta?.range]);
+          if (!seenBeams[pairKey]) {
+            seenBeams[pairKey] = [beam];
           } else {
-            seenBeams[beamIdentifier] = [sortedId1, sortedId2, beam.__meta?.range];
+            // Only flag if physical parameters are completely identical (true redundant duplicate)
+            const isDuplicate = seenBeams[pairKey].some(prevBeam => areBeamsPhysicallyIdentical(prevBeam, beam));
+            if (isDuplicate) {
+              diagnostics.push(['warning', `Duplicate beam: ${sortedId1}, ${sortedId2}`, beam.__meta?.range]);
+            } else {
+              seenBeams[pairKey].push(beam);
+            }
           }
         }
       }

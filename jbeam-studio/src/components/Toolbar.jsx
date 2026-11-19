@@ -36,6 +36,7 @@ export function Toolbar({
   simStatus = 'disconnected',
   viewportSource = 'activeDocument',
   onChangeViewportSource = null,
+  onSelectLeftTab = null,
   onDetachViewport = null,
   isViewportDetached = false,
   onOpenSearch = null,
@@ -277,9 +278,9 @@ export function Toolbar({
                 <button
                   type="button"
                   className="menu-dropdown-item"
-                  onClick={() => executeMenuAction(() => onChangeViewportSource && onChangeViewportSource('assembly'))}
+                  onClick={() => executeMenuAction(() => onSelectLeftTab && onSelectLeftTab('assembly'))}
                 >
-                  <span>Full Assembly View (Vehicle)</span>
+                  <span>Vehicle Assembly Workspace</span>
                 </button>
                 <button
                   type="button"
@@ -291,9 +292,9 @@ export function Toolbar({
                 <button
                   type="button"
                   className="menu-dropdown-item"
-                  onClick={() => executeMenuAction(() => onChangeViewportSource && onChangeViewportSource('powertrain'))}
+                  onClick={() => executeMenuAction(() => onSelectLeftTab && onSelectLeftTab('mechanical'))}
                 >
-                  <span>Powertrain Flow & Wiring Studio</span>
+                  <span>Mechanical Workspace</span>
                 </button>
                 <div className="menu-dropdown-separator" />
                 <button

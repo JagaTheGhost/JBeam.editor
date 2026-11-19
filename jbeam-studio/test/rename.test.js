@@ -97,6 +97,17 @@ export function runRenameTests() {
   assert.strictEqual(res4.renamedCount, 0);
   assert.strictEqual(res4.updatedText, fixture1);
   console.log('✓ Test 4: Non-existent node handled gracefully.');
+
+  // Test 5: Replacements array output for Monaco Editor F2 Rename Symbol
+  const res5 = renameNodeLossless(fixture1, 'pickup_frame', 'fr1r', 'front_rail_r', { symmetry: true });
+  assert.ok(Array.isArray(res5.replacements), 'res5.replacements must be an array');
+  assert.ok(res5.replacements.length > 0, 'Should return replacement range entries for Monaco');
+  for (const rep of res5.replacements) {
+    assert.ok(Array.isArray(rep.range), 'Range must be an array');
+    assert.strictEqual(rep.range.length, 4, 'Range must have [startLine, startCol, endLine, endCol]');
+    assert.ok(rep.value.includes('front_rail_'), 'Replacement value must contain new ID');
+  }
+  console.log('✓ Test 5: Monaco Rename Provider edits & replacements verified.');
 }
 
 if (process.argv[1]?.endsWith('rename.test.js')) {

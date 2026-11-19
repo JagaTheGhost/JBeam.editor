@@ -1,5 +1,6 @@
 import React from 'react';
 import AppBrandName from './AppBrandName.jsx';
+import { CloseIcon } from './Icons.jsx';
 
 /**
  * BeamNG Themed In-App Update Notification Banner
@@ -49,7 +50,7 @@ export function UpdateBanner({ updateInfo, onDismiss }) {
           title="Dismiss notification"
           aria-label="Dismiss notification"
         >
-          ✕
+          <CloseIcon size={13} />
         </button>
       </div>
     </div>

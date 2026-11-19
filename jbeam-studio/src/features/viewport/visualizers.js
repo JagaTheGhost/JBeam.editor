@@ -4,7 +4,7 @@
 */
 
 import * as THREE from 'three';
-import { beamngToThree } from './coordinateUtils.js';
+import { beamngToThree, getSymmetricNodeId } from './coordinateUtils.js';
 
 /**
  * Safely extracts [x, y, z] coordinates from a node object, handling posX/posY/posZ,
@@ -19,18 +19,136 @@ export function extractNodeCoords(node) {
 }
 
 export const BEAM_TYPE_COLORS = {
-  '|NORMAL': 0x00e676,      // Vibrant Emerald Green (chassis / structural)
-  '|SUPPORT': 0xf59e0b,     // Warm Amber (anti-inversion support)
-  '|HYDRO': 0x00e5ff,       // Electric Cyan / Blue (steering & suspension actuators)
-  '|BOUNDED': 0xa855f7,     // Vivid Purple (non-linear limit stops)
-  '|ANISOTROPIC': 0xef4444, // Coral Red (directional stiffness)
-  '|PRESSURED': 0x0284c7,   // Sky Blue (pneumatic / airbags)
+  '|NORMAL': 0x22c55e,      // Vivid Spring Green (structural skeleton / normal beams)
+  '|SUPPORT': 0xfbbf24,     // Radiant Sun Gold (anti-inversion support lattice)
+  '|HYDRO': 0x00e5ff,       // Electric Sky Cyan (steering & suspension actuators)
+  '|BOUNDED': 0xd946ef,     // Electric Magenta / Fuchsia (bumpstops & travel limiters)
+  '|ANISOTROPIC': 0xff6b00, // Vibrant Flame Orange (directional stiffness & tire compliance)
+  '|PRESSURED': 0x818cf8,   // Radiant Indigo (pneumatic cells & airbags)
   '|LBEAM': 0x94a3b8,       // Slate Gray (limit beams)
   '|TIRESIDE': 0x84cc16,    // Lime (tire carcass sidewalls)
-  '|BROKEN': 0x7f1d1d,      // Deep Red
-  '|VIRTUAL': 0x38bdf8,     // Electric Sky Blue (cross-part chassis mount)
-  'DEFAULT': 0x00e676
+  '|BROKEN': 0xef4444,      // Deep Red
+  '|VIRTUAL': 0xc084fc,     // Bright Orchid Purple (cross-part chassis linkages)
+  'DEFAULT': 0x22c55e
 };
+
+/**
+ * Resolves node physics role classification.
+ */
+export function resolveNodeType(node, nodeId = '') {
+  if (node?.__isExternal === true || node?.__isNonActive === true) return 'external';
+  if (node?.fixed === true) return 'fixed';
+  const idStr = String(nodeId || node?.id || node?.name || '');
+  if (/^(fw1|hub_f|fh1|rw1|hub_r|rh1|wheel_|wh_).*$/i.test(idStr)) return 'wheelHub';
+  if (/^(em1|tra1|e1|e2|e3|e4|rdiff|fdiff).*$/i.test(idStr) || (node?.group && Array.isArray(node.group) && node.group.some(g => typeof g === 'string' && /engine|mount|trans/i.test(g)))) return 'mount';
+  if (node?.collision === false) return 'nonCollidable';
+  if (node?.selfCollision === true) return 'selfCollision';
+  return 'collisionOnly';
+}
+
+/**
+ * Resolves surface physics type (NORMALTYPE, NONCOLLIDABLE, PRESSURE).
+ */
+export function resolveSurfaceType(surface) {
+  const t = String(surface?.triangleType || surface?.quadType || surface?.type || 'NORMALTYPE').toUpperCase();
+  if (t === 'NONCOLLIDABLE') return 'NONCOLLIDABLE';
+  if (t === 'PRESSURE') return 'PRESSURE';
+  return 'NORMALTYPE';
+}
+
+/**
+ * Computes dynamic element counts by physics type for filtering and HUD display.
+ * Accurately detects external connection beams (|VIRTUAL) and foreign reference nodes.
+ */
+export function countVehicleElementTypes(beamsDict = {}, nodesDict = {}, trianglesDict = {}, quadsDict = {}, externalNodesDict = {}) {
+  const beamCounts = {
+    '|NORMAL': 0,
+    '|SUPPORT': 0,
+    '|HYDRO': 0,
+    '|BOUNDED': 0,
+    '|ANISOTROPIC': 0,
+    '|PRESSURED': 0,
+    '|VIRTUAL': 0
+  };
+  const nodeCounts = {
+    collisionOnly: 0,
+    selfCollision: 0,
+    nonCollidable: 0,
+    wheelHub: 0,
+    mount: 0,
+    fixed: 0,
+    external: 0
+  };
+  const surfaceCounts = {
+    NORMALTYPE: 0,
+    NONCOLLIDABLE: 0,
+    PRESSURE: 0
+  };
+
+  const isLocalNode = (id, partName) => {
+    if (!id || !nodesDict) return false;
+    if (partName && nodesDict[`${partName}_${id}`]) return true;
+    if (nodesDict[id]) {
+      return !nodesDict[id].__partName || nodesDict[id].__partName === partName;
+    }
+    for (const k of Object.keys(nodesDict)) {
+      if (k === id || k.endsWith(`_${id}`)) return true;
+    }
+    return false;
+  };
+
+  const referencedExternalNodes = new Set();
+
+  for (const k of Object.keys(beamsDict || {}).filter(k => k !== '__meta')) {
+    const b = beamsDict[k];
+    if (!b || typeof b !== 'object') continue;
+    const id1 = b['id1:'];
+    const id2 = b['id2:'];
+    const norm = normalizeBeamType(b.beamType);
+
+    const isExternal1 = id1 ? (!isLocalNode(id1, b.__partName) || (externalNodesDict && !!externalNodesDict[id1])) : false;
+    const isExternal2 = id2 ? (!isLocalNode(id2, b.__partName) || (externalNodesDict && !!externalNodesDict[id2])) : false;
+    const isCrossPart = b.__isCrossPart === true || b.isVirtual === true || (id1 && id2 && (isExternal1 || isExternal2));
+
+    if (id1 && isExternal1) referencedExternalNodes.add(id1);
+    if (id2 && isExternal2) referencedExternalNodes.add(id2);
+
+    if (isCrossPart) {
+      beamCounts['|VIRTUAL'] = (beamCounts['|VIRTUAL'] || 0) + 1;
+    } else if (beamCounts[norm] !== undefined) {
+      beamCounts[norm]++;
+    } else {
+      beamCounts['|NORMAL']++;
+    }
+  }
+
+  nodeCounts.external = referencedExternalNodes.size;
+
+  for (const k of Object.keys(nodesDict || {}).filter(k => k !== '__meta')) {
+    const n = nodesDict[k];
+    if (!n || typeof n !== 'object') continue;
+    if (n.__isExternal === true || n.__isNonActive === true) {
+      nodeCounts.external++;
+      continue;
+    }
+    const nid = n.id || n.name || k;
+    const type = resolveNodeType(n, nid);
+    if (nodeCounts[type] !== undefined) nodeCounts[type]++;
+  }
+
+  const countSurfs = (dict) => {
+    for (const k of Object.keys(dict || {}).filter(k => k !== '__meta')) {
+      const s = dict[k];
+      if (!s || typeof s !== 'object') continue;
+      const type = resolveSurfaceType(s);
+      if (surfaceCounts[type] !== undefined) surfaceCounts[type]++;
+    }
+  };
+  countSurfs(trianglesDict);
+  countSurfs(quadsDict);
+
+  return { beamCounts, nodeCounts, surfaceCounts };
+}
 
 /**
  * Normalizes beam type string or integer ID into standard BeamNG type string.
@@ -63,7 +181,7 @@ export function normalizeBeamType(type) {
 
 export const SELECTION_COLOR = 0xffeb3b; // Bright yellow
 export const HOVER_COLOR = 0x00e5ff;     // Cyan
-export const NODE_DEFAULT_COLOR = 0x4fc3f7; // Light blue
+export const NODE_DEFAULT_COLOR = 0xf8fafc; // Clean Diamond White / Platinum (distinct from cyan beams & indigo surfaces)
 export const NODE_FIXED_COLOR = 0xff5252;   // Red
 
 /**
@@ -139,24 +257,143 @@ export function calculateBeamDeformStats(beamsDict) {
   return { minDeform, maxDeform, count };
 }
 
+/**
+ * Analyzes connected topology for a set of selected nodes.
+ * Identifies directly connected beams and 1-hop neighbor nodes.
+ * Supports symmetry (X-Mirror) to symmetrically include mirrored nodes and their connections.
+ * 
+ * @param {string|string[]|Set<string>} selectedNodeIds - Node ID or list of IDs
+ * @param {object} beamsDict - Dictionary of beams (e.g. mergedBeams)
+ * @param {boolean} symmetryEnabled - Whether bilateral symmetry is active
+ * @returns {object} { enabled, selectedNodeIds, neighborNodeIds, connectedBeamKeys, connectedBeamsCount, neighborNodesCount }
+ */
+export function computeConnectedTopology(selectedNodeIds, beamsDict, symmetryEnabled = false) {
+  if (!selectedNodeIds || !beamsDict) {
+    return {
+      enabled: false,
+      selectedNodeIds: new Set(),
+      neighborNodeIds: new Set(),
+      connectedBeamKeys: new Set(),
+      connectedBeamsCount: 0,
+      neighborNodesCount: 0
+    };
+  }
+
+  const rawList = selectedNodeIds instanceof Set
+    ? Array.from(selectedNodeIds)
+    : (Array.isArray(selectedNodeIds) ? selectedNodeIds : [selectedNodeIds]);
+
+  const validRawList = rawList.filter(id => id && typeof id === 'string' && id.trim().length > 0);
+  if (validRawList.length === 0) {
+    return {
+      enabled: false,
+      selectedNodeIds: new Set(),
+      neighborNodeIds: new Set(),
+      connectedBeamKeys: new Set(),
+      connectedBeamsCount: 0,
+      neighborNodesCount: 0
+    };
+  }
+
+  const selectedSet = new Set();
+  for (const raw of validRawList) {
+    selectedSet.add(raw);
+    const parts = raw.split('_');
+    if (parts.length > 1) {
+      selectedSet.add(parts.slice(1).join('_'));
+    }
+    if (symmetryEnabled) {
+      const baseId = parts.length > 1 ? parts.slice(1).join('_') : raw;
+      const mirrorId = getSymmetricNodeId(baseId);
+      if (mirrorId && mirrorId !== baseId) {
+        selectedSet.add(mirrorId);
+        if (parts.length > 1) {
+          selectedSet.add(`${parts[0]}_${mirrorId}`);
+        }
+      }
+    }
+  }
+
+  const neighborSet = new Set();
+  const connectedBeamKeys = new Set();
+  let uniqueBeamCount = 0;
+
+  const isMatchingNode = (id, partName) => {
+    if (!id) return false;
+    if (selectedSet.has(id)) return true;
+    if (partName && selectedSet.has(`${partName}_${id}`)) return true;
+    for (const s of selectedSet) {
+      if (s === id || s.endsWith(`_${id}`) || id.endsWith(`_${s}`)) return true;
+    }
+    return false;
+  };
+
+  const beamKeys = Object.keys(beamsDict).filter(k => k !== '__meta');
+  for (const bKey of beamKeys) {
+    const beam = beamsDict[bKey];
+    if (!beam || typeof beam !== 'object') continue;
+    const id1 = beam['id1:'];
+    const id2 = beam['id2:'];
+    if (!id1 || !id2) continue;
+
+    const match1 = isMatchingNode(id1, beam.__partName);
+    const match2 = isMatchingNode(id2, beam.__partName);
+
+    if (match1 || match2) {
+      uniqueBeamCount++;
+      connectedBeamKeys.add(bKey);
+      if (beam.__beamKey) connectedBeamKeys.add(beam.__beamKey);
+      if (beam.__partName && beam.__beamKey) {
+        connectedBeamKeys.add(`${beam.__partName}_${beam.__beamKey}`);
+      }
+      connectedBeamKeys.add(`${id1}_${id2}`);
+      connectedBeamKeys.add(`${id2}_${id1}`);
+
+      if (match1 && !match2) {
+        neighborSet.add(id2);
+        if (beam.__partName) neighborSet.add(`${beam.__partName}_${id2}`);
+      } else if (match2 && !match1) {
+        neighborSet.add(id1);
+        if (beam.__partName) neighborSet.add(`${beam.__partName}_${id1}`);
+      }
+    }
+  }
+
+  return {
+    enabled: true,
+    selectedNodeIds: selectedSet,
+    neighborNodeIds: neighborSet,
+    connectedBeamKeys,
+    connectedBeamsCount: uniqueBeamCount,
+    neighborNodesCount: neighborSet.size
+  };
+}
+
 export function buildNodesGroup(
   nodesDict,
   selectedNodeId = null,
   colorMode = 'type',
   highlightedNodeIds = null,
   multiSelectedNodeIds = null,
-  nonActiveStyle = 'ghost'
+  nonActiveStyle = 'ghost',
+  typeFilters = null,
+  options = {}
 ) {
   const group = new THREE.Group();
   group.name = 'jbeam_nodes_group';
 
   if (!nodesDict || typeof nodesDict !== 'object') return group;
 
-  const sphereGeometry = new THREE.SphereGeometry(0.028, 16, 16);
+  const focusConnected = options?.focusConnected;
+  const isFocusActive = Boolean(focusConnected?.enabled);
+
+  const sphereGeometry = new THREE.SphereGeometry(0.033, 16, 16);
   const defaultMaterial = new THREE.MeshStandardMaterial({
     color: NODE_DEFAULT_COLOR,
-    roughness: 0.3,
-    metalness: 0.2
+    roughness: 0.15,
+    metalness: 0.25,
+    emissive: 0x222222,
+    emissiveIntensity: 0.35
   });
   const selectedMaterial = new THREE.MeshStandardMaterial({
     color: SELECTION_COLOR,
@@ -164,6 +401,21 @@ export function buildNodesGroup(
     emissiveIntensity: 0.4,
     roughness: 0.2,
     metalness: 0.1
+  });
+  const neighborMaterial = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8, // Electric Sky Blue for connected 1-hop neighbor nodes
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.55,
+    roughness: 0.25,
+    metalness: 0.3
+  });
+  const dimmedNodeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x475569, // Slate gray
+    roughness: 0.8,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false
   });
   const highlightedMaterial = new THREE.MeshStandardMaterial({
     color: 0x00e5ff, // Bright radiant cyan for active flexbody driver nodes
@@ -173,18 +425,20 @@ export function buildNodesGroup(
     metalness: 0.2
   });
   const fixedMaterial = new THREE.MeshStandardMaterial({
-    color: NODE_FIXED_COLOR,
+    color: 0xff0033, // High-contrast Alert Red for fixed nodes
     roughness: 0.3,
     metalness: 0.2
   });
 
   const partMaterials = {};
   const massMaterials = new Map();
+  const typeMaterials = new Map();
 
   // If mass heatmap mode is active, precompute min/max node weights
   let minWeight = Infinity;
   let maxWeight = -Infinity;
   const isMassMode = colorMode === 'mass' || colorMode === 'massHeatmap';
+  const isTypeMode = colorMode === 'type';
 
   if (isMassMode) {
     const nodeKeys = Object.keys(nodesDict).filter(k => k !== '__meta');
@@ -235,8 +489,17 @@ export function buildNodesGroup(
     const nodeId = node.id || node.name || key;
     const [px, py, pz] = extractNodeCoords(node);
     const worldPos = beamngToThree(px, py, pz);
-    const isPrimarySelected = typeof selectedNodeId === 'string' && selectedNodeId === nodeId;
-    const isMultiSelected = multiSet.has(nodeId);
+    const isPrimarySelected = typeof selectedNodeId === 'string' && (
+      selectedNodeId === nodeId ||
+      selectedNodeId === key ||
+      selectedNodeId === `${node.__partName}_${nodeId}` ||
+      (node.__partName && selectedNodeId.replace(`${node.__partName}_`, '') === nodeId)
+    );
+    const isMultiSelected = multiSet.has(nodeId) || multiSet.has(key) ||
+      (node.__partName && (
+        multiSet.has(`${node.__partName}_${nodeId}`) ||
+        Array.from(multiSet).some(id => id.replace(`${node.__partName}_`, '') === nodeId)
+      ));
     const isSelected = isPrimarySelected || isMultiSelected;
     const isHighlighted = highlightedNodeIds && (
       highlightedNodeIds instanceof Set
@@ -246,9 +509,27 @@ export function buildNodesGroup(
     const isFixed = node.fixed === true;
     const isNonActive = node.__isNonActive === true;
 
+    const isNeighbor = isFocusActive && (
+      focusConnected.neighborNodeIds.has(nodeId) ||
+      focusConnected.neighborNodeIds.has(key) ||
+      (node.__partName && (
+        focusConnected.neighborNodeIds.has(`${node.__partName}_${nodeId}`) ||
+        Array.from(focusConnected.neighborNodeIds).some(id => id.replace(`${node.__partName}_`, '') === nodeId)
+      ))
+    );
+
+    const resolvedNodeType = resolveNodeType(node, nodeId);
+    if (typeFilters?.nodes && typeFilters.nodes[resolvedNodeType] === false) {
+      continue;
+    }
+
     let nodeMaterial = defaultMaterial;
     if (isSelected) {
       nodeMaterial = selectedMaterial;
+    } else if (isNeighbor) {
+      nodeMaterial = neighborMaterial;
+    } else if (isFocusActive) {
+      nodeMaterial = dimmedNodeMaterial;
     } else if (isHighlighted) {
       nodeMaterial = highlightedMaterial;
     } else if (isNonActive) {
@@ -291,6 +572,64 @@ export function buildNodesGroup(
         });
       }
       nodeMaterial = partMaterials[node.__partColor];
+    } else if (colorMode === 'type') {
+      // Differentiate Node Physics Types with distinct non-overlapping colors
+      if (resolvedNodeType === 'wheelHub') {
+        if (!typeMaterials.has('wheelHub')) {
+          typeMaterials.set('wheelHub', new THREE.MeshStandardMaterial({
+            color: 0xeab308, // Radiant Sun Gold for Wheel Hubs & Spindles
+            roughness: 0.25,
+            metalness: 0.4
+          }));
+        }
+        nodeMaterial = typeMaterials.get('wheelHub');
+      } else if (resolvedNodeType === 'mount') {
+        if (!typeMaterials.has('mount')) {
+          typeMaterials.set('mount', new THREE.MeshStandardMaterial({
+            color: 0xef4444, // Vivid Crimson Red for Drivetrain & Engine Mounts
+            roughness: 0.25,
+            metalness: 0.3
+          }));
+        }
+        nodeMaterial = typeMaterials.get('mount');
+      } else if (resolvedNodeType === 'nonCollidable') {
+        if (!typeMaterials.has('nonCollidable')) {
+          typeMaterials.set('nonCollidable', new THREE.MeshStandardMaterial({
+            color: 0x64748b, // Graphite / Slate Grey for Non-Collidable nodes
+            roughness: 0.6,
+            transparent: true,
+            opacity: 0.45
+          }));
+        }
+        nodeMaterial = typeMaterials.get('nonCollidable');
+      } else if (resolvedNodeType === 'external') {
+        if (!typeMaterials.has('external')) {
+          typeMaterials.set('external', new THREE.MeshStandardMaterial({
+            color: 0xc084fc, // Electric Orchid Purple for External anchor reference nodes
+            roughness: 0.25,
+            metalness: 0.3
+          }));
+        }
+        nodeMaterial = typeMaterials.get('external');
+      } else if (resolvedNodeType === 'selfCollision') {
+        if (!typeMaterials.has('selfCollision')) {
+          typeMaterials.set('selfCollision', new THREE.MeshStandardMaterial({
+            color: 0x38bdf8, // Electric Sky Blue for Self-Colliding body nodes
+            roughness: 0.25,
+            metalness: 0.2
+          }));
+        }
+        nodeMaterial = typeMaterials.get('selfCollision');
+      } else {
+        if (!typeMaterials.has('collisionOnly')) {
+          typeMaterials.set('collisionOnly', new THREE.MeshStandardMaterial({
+            color: 0xf8fafc, // Diamond White / Platinum for Standard Collision (pops on colored beams)
+            roughness: 0.3,
+            metalness: 0.3
+          }));
+        }
+        nodeMaterial = typeMaterials.get('collisionOnly');
+      }
     }
 
     const mesh = new THREE.Mesh(sphereGeometry, nodeMaterial);
@@ -303,6 +642,8 @@ export function buildNodesGroup(
       initialBeamngPos: [px, py, pz],
       isHighlighted: Boolean(isHighlighted),
       isNonActive: Boolean(isNonActive),
+      isNeighborNode: Boolean(isNeighbor),
+      isDimmedByFocus: Boolean(isFocusActive && !isSelected && !isNeighbor),
       partName: node.__partName,
       tabTitle: node.__tabTitle || node.__partName,
       uniqueKey: `${node.__partName || (node.__isNonActive ? 'bg' : 'active')}_${nodeId}`,
@@ -319,6 +660,10 @@ export function buildNodesGroup(
 
     if (isSelected) {
       mesh.scale.set(massScale * 1.5, massScale * 1.5, massScale * 1.5);
+    } else if (isNeighbor) {
+      mesh.scale.set(massScale * 1.25, massScale * 1.25, massScale * 1.25);
+    } else if (isFocusActive) {
+      mesh.scale.set(massScale * 0.65, massScale * 0.65, massScale * 0.65);
     } else if (isHighlighted) {
       mesh.scale.set(massScale * 1.35, massScale * 1.35, massScale * 1.35);
     } else if (isMassMode) {
@@ -334,12 +679,15 @@ export function buildNodesGroup(
 /**
  * Creates billboard text sprites for node names.
  */
-export function buildNodeLabelsGroup(nodesDict, selectedNodeId = null, highlightedNodeIds = null) {
+export function buildNodeLabelsGroup(nodesDict, selectedNodeId = null, highlightedNodeIds = null, options = {}) {
   const group = new THREE.Group();
   group.name = 'jbeam_node_labels_group';
 
   if (!nodesDict || typeof nodesDict !== 'object') return group;
   if (typeof document === 'undefined') return group;
+
+  const focusConnected = options?.focusConnected;
+  const isFocusActive = Boolean(focusConnected?.enabled);
 
   const nodeKeys = Object.keys(nodesDict).filter(k => k !== '__meta');
   
@@ -351,11 +699,11 @@ export function buildNodeLabelsGroup(nodesDict, selectedNodeId = null, highlight
     const nId = node?.id || node?.name || k;
     const isPri = selectedNodeId === nId || (highlightedNodeIds && (
       highlightedNodeIds instanceof Set ? highlightedNodeIds.has(nId) : highlightedNodeIds.includes(nId)
-    ));
+    )) || (isFocusActive && (focusConnected.selectedNodeIds.has(nId) || focusConnected.neighborNodeIds.has(nId)));
     if (isPri) priorityKeys.push(k);
-    else normalKeys.push(k);
+    else if (!isFocusActive) normalKeys.push(k);
   }
-  const keysToRender = [...priorityKeys, ...normalKeys].slice(0, 300);
+  const keysToRender = isFocusActive ? priorityKeys : [...priorityKeys, ...normalKeys].slice(0, 300);
 
   for (const key of keysToRender) {
     const node = nodesDict[key];
@@ -421,6 +769,48 @@ export function buildNodeLabelsGroup(nodesDict, selectedNodeId = null, highlight
 }
 
 /**
+ * Generates vertex coordinate pairs for technical CAD Dash-Dot chain lines (— · — · —).
+ * Explicitly differentiates external inter-part linkages from standard dashed support beams (- - -).
+ */
+export function generateDashDotPositions(pos1, pos2, dashLen = 0.045, gapLen = 0.016, dotLen = 0.010) {
+  const dir = new THREE.Vector3().subVectors(pos2, pos1);
+  const totalLen = dir.length();
+  if (totalLen <= 0.001) {
+    return [pos1.x, pos1.y, pos1.z, pos2.x, pos2.y, pos2.z];
+  }
+  dir.normalize();
+
+  const coords = [];
+  if (totalLen < 0.04) {
+    const mid = pos1.clone().lerp(pos2, 0.65);
+    coords.push(pos1.x, pos1.y, pos1.z, mid.x, mid.y, mid.z);
+    coords.push(mid.x, mid.y, mid.z, pos2.x, pos2.y, pos2.z);
+    return coords;
+  }
+
+  let current = 0;
+  while (current < totalLen) {
+    // 1. Dash
+    const dashEnd = Math.min(current + dashLen, totalLen);
+    const p1 = pos1.clone().addScaledVector(dir, current);
+    const p2 = pos1.clone().addScaledVector(dir, dashEnd);
+    coords.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+
+    current += dashLen + gapLen;
+    if (current >= totalLen) break;
+
+    // 2. Dot
+    const dotEnd = Math.min(current + dotLen, totalLen);
+    const p3 = pos1.clone().addScaledVector(dir, current);
+    const p4 = pos1.clone().addScaledVector(dir, dotEnd);
+    coords.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+
+    current += dotLen + gapLen;
+  }
+  return coords;
+}
+
+/**
  * Creates line segments for beams, color-coded by type or assembly part.
  * Supports specialized BeamNG physics beam types:
  *  - |SUPPORT: Rendered as dashed Amber line segments (LineDashedMaterial)
@@ -428,12 +818,26 @@ export function buildNodeLabelsGroup(nodesDict, selectedNodeId = null, highlight
  *  - |BOUNDED: Vivid Purple limit beams
  *  - |ANISOTROPIC / |TIRESIDE: Coral Red directional stiffness
  *  - |NORMAL: Standard chassis & structural members (Emerald Green)
+ *  - |VIRTUAL: External inter-part mount linkages rendered as technical Dash-Dot chain lines
  */
-export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, colorMode = 'type', externalNodesDict = {}, nonActiveStyle = 'ghost', selectedBeamInfo = null) {
+export function buildBeamsGroup(
+  beamsDict,
+  nodesDict,
+  selectedBeamKey = null,
+  colorMode = 'type',
+  externalNodesDict = {},
+  nonActiveStyle = 'ghost',
+  selectedBeamInfo = null,
+  typeFilters = null,
+  options = {}
+) {
   const group = new THREE.Group();
   group.name = 'jbeam_beams_group';
 
   if (!beamsDict || !nodesDict) return group;
+
+  const focusConnected = options?.focusConnected;
+  const isFocusActive = Boolean(focusConnected?.enabled);
 
   // Solid line segments (Normal, Hydro, Bounded, Anisotropic, etc.)
   const positions = [];
@@ -445,16 +849,18 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
   const supportColors = [];
   let supportVertexIndex = 0;
 
-  // Dashed cross-part virtual connector line segments
+  // Technical CAD Dash-Dot chain line segments (External Chassis Mount Linkages)
   const virtualPositions = [];
   const virtualColors = [];
   let virtualVertexIndex = 0;
+  const externalAnchorPositions = [];
 
   // Non-active opened files ghost lines
   const nonActivePositions = [];
 
   const isStiffnessMode = colorMode === 'stiffness' || colorMode === 'stiffnessHeatmap';
   const isDeformMode = colorMode === 'deform' || colorMode === 'deformHeatmap';
+  const isTypeMode = colorMode === 'type';
 
   let minSpring = Infinity;
   let maxSpring = -Infinity;
@@ -594,6 +1000,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       selectedBeamKey === beam.__beamKey ||
       String(selectedBeamKey) === String(beam.__beamKey) ||
       (beam.__partName && selectedBeamKey === `${beam.__partName}_${beam.__beamKey}`) ||
+      (beam.__partName && key === `${beam.__partName}_${selectedBeamKey}`) ||
       selectedBeamKey === `${id1}_${id2}` ||
       selectedBeamKey === `${id2}_${id1}`
     )) || (selectedBeamInfo && (
@@ -602,6 +1009,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
         selectedBeamInfo.beamKey === beam.__beamKey ||
         String(selectedBeamInfo.beamKey) === String(beam.__beamKey) ||
         (beam.__partName && selectedBeamInfo.beamKey === `${beam.__partName}_${beam.__beamKey}`) ||
+        (beam.__partName && key === `${beam.__partName}_${selectedBeamInfo.beamKey}`) ||
         selectedBeamInfo.beamKey === `${id1}_${id2}` ||
         selectedBeamInfo.beamKey === `${id2}_${id1}`
       )) ||
@@ -624,26 +1032,54 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       selectedEndpoints = { pos1, pos2 };
     }
 
+    const isConnectedBeam = isFocusActive && (
+      focusConnected.connectedBeamKeys.has(key) ||
+      (beam.__beamKey && focusConnected.connectedBeamKeys.has(beam.__beamKey)) ||
+      (beam.__partName && beam.__beamKey && focusConnected.connectedBeamKeys.has(`${beam.__partName}_${beam.__beamKey}`)) ||
+      focusConnected.connectedBeamKeys.has(`${id1}_${id2}`) ||
+      focusConnected.connectedBeamKeys.has(`${id2}_${id1}`) ||
+      focusConnected.selectedNodeIds.has(id1) ||
+      focusConnected.selectedNodeIds.has(id2)
+    );
+
     const normType = isCrossPart ? '|VIRTUAL' : normalizeBeamType(beam.beamType);
+    if (typeFilters?.beams && typeFilters.beams[normType] === false) {
+      continue;
+    }
+
     const isSupport = normType === '|SUPPORT';
     const isHydro = normType === '|HYDRO';
     const isNonActive = beam.__isNonActive === true;
 
-    // Cross-part beams connecting to external parts ALWAYS render with dashed lines!
+    // Cross-part beams connecting to external parts ALWAYS render with technical Dash-Dot chain lines (— · — · —)!
     if (isCrossPart) {
-      virtualPositions.push(pos1.x, pos1.y, pos1.z);
-      virtualPositions.push(pos2.x, pos2.y, pos2.z);
-      // High-visibility Gold/Amber dashed lines for external cross-part virtual connector beams
+      const dashDotCoords = generateDashDotPositions(pos1, pos2);
       let crossColor;
       if (isSelected) {
         crossColor = new THREE.Color(SELECTION_COLOR);
+      } else if (colorMode === 'type') {
+        crossColor = new THREE.Color(BEAM_TYPE_COLORS['|VIRTUAL'] || 0xc084fc);
+      } else if (colorMode === 'default') {
+        // Distinct Electric Orchid Purple in Normal View so external linkages NEVER clash with Cyan normal or Amber support beams
+        crossColor = new THREE.Color(0xc084fc);
       } else {
         crossColor = nonActiveStyle === 'crossBeams'
           ? new THREE.Color(0xffd600)
-          : (isNonActive ? new THREE.Color(0xd97706) : new THREE.Color(0xf59e0b));
+          : (isNonActive ? new THREE.Color(0xd97706) : new THREE.Color(0xc084fc));
       }
-      virtualColors.push(crossColor.r, crossColor.g, crossColor.b);
-      virtualColors.push(crossColor.r, crossColor.g, crossColor.b);
+
+      if (isFocusActive && !isConnectedBeam && !isSelected) {
+        crossColor.multiplyScalar(0.14);
+      }
+
+      const numPoints = dashDotCoords.length / 3;
+      for (let ci = 0; ci < dashDotCoords.length; ci += 3) {
+        virtualPositions.push(dashDotCoords[ci], dashDotCoords[ci + 1], dashDotCoords[ci + 2]);
+        virtualColors.push(crossColor.r, crossColor.g, crossColor.b);
+      }
+
+      const extPos = !res1.isLocal ? pos1 : pos2;
+      externalAnchorPositions.push({ pos: extPos, color: crossColor });
 
       beamSegments.push({
         key,
@@ -655,14 +1091,15 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
         isSupport: false,
         isVirtual: true,
         isNonActive,
+        isConnectedByFocus: Boolean(isConnectedBeam),
         externalNodeId: !res1.isLocal ? id1 : id2,
         beamData: beam,
         pos1,
         pos2,
         vertexIdx1: virtualVertexIndex,
-        vertexIdx2: virtualVertexIndex + 1
+        vertexIdx2: virtualVertexIndex + numPoints
       });
-      virtualVertexIndex += 2;
+      virtualVertexIndex += numPoints;
       continue;
     }
 
@@ -677,6 +1114,9 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
             colorHelper.multiplyScalar(0.35); // Dim non-active parts so mounting joints stand out vividly
           } else if (nonActiveStyle === 'crossBeams') {
             colorHelper.multiplyScalar(0.40); // Dim non-active parts so cross-part beams stand out
+          }
+          if (isFocusActive && !isConnectedBeam && !isSelected) {
+            colorHelper.multiplyScalar(0.14);
           }
         }
 
@@ -695,6 +1135,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
           isSupport: false,
           isVirtual: false,
           isNonActive: true,
+          isConnectedByFocus: Boolean(isConnectedBeam),
           componentColor: beam.__componentColor,
           beamData: beam,
           pos1,
@@ -725,7 +1166,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       continue;
     }
 
-    let hexColor = BEAM_TYPE_COLORS['DEFAULT'];
+    let hexColor = 0x38bdf8;
     if (isSelected) {
       hexColor = SELECTION_COLOR;
       colorHelper.setHex(hexColor);
@@ -736,11 +1177,22 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       colorHelper.copy(getStiffnessHeatmapColor(beam.beamSpring));
     } else if (isDeformMode) {
       colorHelper.copy(getDeformHeatmapColor(beam.beamDeform, beam.beamStrength));
-    } else if (BEAM_TYPE_COLORS[normType]) {
-      hexColor = BEAM_TYPE_COLORS[normType];
+    } else if (isTypeMode) {
+      if (BEAM_TYPE_COLORS[normType]) {
+        hexColor = BEAM_TYPE_COLORS[normType];
+      } else {
+        hexColor = BEAM_TYPE_COLORS['|NORMAL'];
+      }
       colorHelper.setHex(hexColor);
     } else {
+      // Normal / Default creation view: clear vivid green wireframe (distinct from White nodes and Blue surfaces)
+      // Support beams receive dashed warm amber tone for visual differentiation
+      hexColor = isSupport ? 0xf59e0b : 0x22c55e;
       colorHelper.setHex(hexColor);
+    }
+
+    if (isFocusActive && !isConnectedBeam && !isSelected) {
+      colorHelper.multiplyScalar(0.14);
     }
 
     if (isCrossPart) {
@@ -781,6 +1233,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
         beamType: normType,
         isSupport: true,
         isVirtual: false,
+        isConnectedByFocus: Boolean(isConnectedBeam),
         beamData: beam,
         pos1,
         pos2,
@@ -803,6 +1256,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
         beamType: normType,
         isSupport: false,
         isVirtual: false,
+        isConnectedByFocus: Boolean(isConnectedBeam),
         beamData: beam,
         pos1,
         pos2,
@@ -828,7 +1282,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       vertexColors: true,
       linewidth: 1.5,
       transparent: true,
-      opacity: 0.95
+      opacity: isTypeMode ? 0.92 : 0.52
     });
 
     const lines = new THREE.LineSegments(geometry, material);
@@ -851,7 +1305,7 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
       gapSize: 0.025,
       linewidth: 1.5,
       transparent: true,
-      opacity: 0.95
+      opacity: isTypeMode ? 0.92 : 0.50
     });
 
     const supportLines = new THREE.LineSegments(supportGeometry, dashedMat);
@@ -863,29 +1317,54 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
     group.userData.supportLines = supportLines;
   }
 
-  // 3. Dashed Cross-Part Virtual Beams (Connectors to External Chassis Nodes)
+  // 3. Technical CAD Dash-Dot Chain Lines (External Chassis Mount Linkages: — · — · —)
   if (virtualPositions.length > 0) {
     const virtualGeometry = new THREE.BufferGeometry();
     const virtualPosAttr = new THREE.Float32BufferAttribute(virtualPositions, 3);
     virtualGeometry.setAttribute('position', virtualPosAttr);
     virtualGeometry.setAttribute('color', new THREE.Float32BufferAttribute(virtualColors, 3));
 
-    const virtualDashedMat = new THREE.LineDashedMaterial({
+    const virtualMat = new THREE.LineBasicMaterial({
       vertexColors: true,
-      dashSize: 0.08,
-      gapSize: 0.04,
       linewidth: 2,
       transparent: true,
-      opacity: 0.95
+      opacity: isTypeMode ? 0.95 : 0.70
     });
 
-    const virtualLines = new THREE.LineSegments(virtualGeometry, virtualDashedMat);
-    virtualLines.computeLineDistances();
+    const virtualLines = new THREE.LineSegments(virtualGeometry, virtualMat);
     virtualLines.name = 'virtual_beams_lines';
     group.add(virtualLines);
 
     group.userData.virtualPosAttr = virtualPosAttr;
     group.userData.virtualLines = virtualLines;
+  }
+
+  // 4. External Mount Anchor Rings (Distinct Visual Indicators on Foreign Nodes)
+  if (externalAnchorPositions.length > 0) {
+    const anchorGroup = new THREE.Group();
+    anchorGroup.name = 'virtual_mount_anchors';
+
+    const uniqueAnchors = new Map();
+    for (const item of externalAnchorPositions) {
+      const aKey = `${item.pos.x.toFixed(3)}_${item.pos.y.toFixed(3)}_${item.pos.z.toFixed(3)}`;
+      if (!uniqueAnchors.has(aKey)) {
+        uniqueAnchors.set(aKey, item);
+      }
+    }
+
+    const torusGeom = new THREE.TorusGeometry(0.018, 0.003, 8, 16);
+    for (const [, item] of uniqueAnchors) {
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: item.color.getHex(),
+        transparent: true,
+        opacity: isTypeMode ? 0.95 : 0.80
+      });
+      const ringMesh = new THREE.Mesh(torusGeom, ringMat);
+      ringMesh.position.copy(item.pos);
+      ringMesh.rotation.x = Math.PI / 2; // Flat horizontal ring around external node
+      anchorGroup.add(ringMesh);
+    }
+    group.add(anchorGroup);
   }
 
   // 4. Non-Active Opened Files Ghost / Wireframe Beams
@@ -937,7 +1416,9 @@ export function buildBeamsGroup(beamsDict, nodesDict, selectedBeamKey = null, co
         metalness: 0.8,
         roughness: 0.25,
         emissive: 0x003355,
-        emissiveIntensity: 0.35
+        emissiveIntensity: 0.35,
+        transparent: Boolean(isFocusActive && !h.isConnectedByFocus),
+        opacity: isFocusActive && !h.isConnectedByFocus ? 0.25 : 1.0
       });
       const cylMesh = new THREE.Mesh(cylGeom, cylMat);
       const mid = new THREE.Vector3().addVectors(h.pos1, h.pos2).multiplyScalar(0.5);
@@ -1043,8 +1524,26 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
     faceOrientation = false,
     showNormals = false,
     selectedSurface = null, // { type: 'triangle' | 'quad', nodes: string[] }
-    nonActiveViewType = 'ghost'
+    nonActiveViewType = 'ghost',
+    colorMode = 'default',
+    typeFilters = null,
+    focusConnected = null
   } = options;
+
+  const isFocusActive = Boolean(focusConnected?.enabled);
+
+  const isTypeMode = colorMode === 'type';
+  const normalPositions = [];
+  const normalEdgePositions = [];
+  const normalSurfaceLookup = [];
+
+  const aeroPositions = [];
+  const aeroEdgePositions = [];
+  const aeroSurfaceLookup = [];
+
+  const pressurePositions = [];
+  const pressureEdgePositions = [];
+  const pressureSurfaceLookup = [];
 
   const positions = [];
   const edgePositions = [];
@@ -1104,6 +1603,13 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
       const isSel = isSurfaceSelected('triangle', [id1, id2, id3]);
       const isNonActive = tri.__isNonActive === true;
 
+      const triType = resolveSurfaceType(tri);
+      if (typeFilters?.surfaces && typeFilters.surfaces[triType] === false) {
+        continue;
+      }
+      const isAeroOnly = triType === 'NONCOLLIDABLE';
+      const isPressure = triType === 'PRESSURE';
+
       const triMeta = {
         type: 'triangle',
         key,
@@ -1112,7 +1618,13 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
         normal: [normal.x, normal.y, normal.z],
         area,
         partName: tri.__partName,
-        isNonActive
+        isNonActive,
+        range: tri.__meta?.range,
+        triangleType: triType,
+        dragCoef: tri.dragCoef !== undefined ? tri.dragCoef : null,
+        liftCoef: tri.liftCoef !== undefined ? tri.liftCoef : null,
+        groundModel: tri.groundModel || null,
+        pressureGroup: tri.pressureGroup || null
       };
 
       if (isNonActive) {
@@ -1127,17 +1639,39 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
         continue;
       }
 
-      positions.push(p1.x, p1.y, p1.z);
-      positions.push(p2.x, p2.y, p2.z);
-      positions.push(p3.x, p3.y, p3.z);
+      if (isTypeMode) {
+        if (isAeroOnly) {
+          aeroPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          aeroEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          aeroEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          aeroEdgePositions.push(p3.x, p3.y, p3.z, p1.x, p1.y, p1.z);
+          aeroSurfaceLookup.push(triMeta);
+        } else if (isPressure) {
+          pressurePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          pressureEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          pressureEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          pressureEdgePositions.push(p3.x, p3.y, p3.z, p1.x, p1.y, p1.z);
+          pressureSurfaceLookup.push(triMeta);
+        } else {
+          normalPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          normalEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          normalEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          normalEdgePositions.push(p3.x, p3.y, p3.z, p1.x, p1.y, p1.z);
+          normalSurfaceLookup.push(triMeta);
+        }
+      } else {
+        positions.push(p1.x, p1.y, p1.z);
+        positions.push(p2.x, p2.y, p2.z);
+        positions.push(p3.x, p3.y, p3.z);
 
-      // Track surface metadata for raycasting faceIndex
-      surfaceLookup.push(triMeta);
+        // Track surface metadata for raycasting faceIndex
+        surfaceLookup.push(triMeta);
 
-      // Triangle wireframe perimeter
-      edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
-      edgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
-      edgePositions.push(p3.x, p3.y, p3.z, p1.x, p1.y, p1.z);
+        // Triangle wireframe perimeter
+        edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+        edgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+        edgePositions.push(p3.x, p3.y, p3.z, p1.x, p1.y, p1.z);
+      }
 
       // If selected in 3D/inspector
       if (isSel) {
@@ -1194,6 +1728,13 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
       const isSel = isSurfaceSelected('quad', [id1, id2, id3, id4]);
       const isNonActive = quad.__isNonActive === true;
 
+      const quadType = resolveSurfaceType(quad);
+      if (typeFilters?.surfaces && typeFilters.surfaces[quadType] === false) {
+        continue;
+      }
+      const isAeroOnly = quadType === 'NONCOLLIDABLE';
+      const isPressure = quadType === 'PRESSURE';
+
       const quadMeta = {
         type: 'quad',
         key,
@@ -1202,7 +1743,13 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
         normal: [avgNormal.x, avgNormal.y, avgNormal.z],
         area: quadArea,
         partName: quad.__partName,
-        isNonActive
+        isNonActive,
+        range: quad.__meta?.range,
+        quadType,
+        dragCoef: quad.dragCoef !== undefined ? quad.dragCoef : null,
+        liftCoef: quad.liftCoef !== undefined ? quad.liftCoef : null,
+        groundModel: quad.groundModel || null,
+        pressureGroup: quad.pressureGroup || null
       };
 
       if (isNonActive) {
@@ -1218,19 +1765,50 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
         continue;
       }
 
-      // Tri 1: (p1, p2, p3)
-      positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
-      // Tri 2: (p1, p3, p4)
-      positions.push(p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+      if (isTypeMode) {
+        if (isAeroOnly) {
+          aeroPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          aeroPositions.push(p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          aeroEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          aeroEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          aeroEdgePositions.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          aeroEdgePositions.push(p4.x, p4.y, p4.z, p1.x, p1.y, p1.z);
+          aeroSurfaceLookup.push(quadMeta);
+          aeroSurfaceLookup.push(quadMeta);
+        } else if (isPressure) {
+          pressurePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          pressurePositions.push(p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          pressureEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          pressureEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          pressureEdgePositions.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          pressureEdgePositions.push(p4.x, p4.y, p4.z, p1.x, p1.y, p1.z);
+          pressureSurfaceLookup.push(quadMeta);
+          pressureSurfaceLookup.push(quadMeta);
+        } else {
+          normalPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          normalPositions.push(p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          normalEdgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+          normalEdgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+          normalEdgePositions.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+          normalEdgePositions.push(p4.x, p4.y, p4.z, p1.x, p1.y, p1.z);
+          normalSurfaceLookup.push(quadMeta);
+          normalSurfaceLookup.push(quadMeta);
+        }
+      } else {
+        // Tri 1: (p1, p2, p3)
+        positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+        // Tri 2: (p1, p3, p4)
+        positions.push(p1.x, p1.y, p1.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
 
-      surfaceLookup.push(quadMeta);
-      surfaceLookup.push(quadMeta);
+        surfaceLookup.push(quadMeta);
+        surfaceLookup.push(quadMeta);
 
-      // Quad wireframe perimeter (p1->p2, p2->p3, p3->p4, p4->p1)
-      edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
-      edgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
-      edgePositions.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
-      edgePositions.push(p4.x, p4.y, p4.z, p1.x, p1.y, p1.z);
+        // Quad wireframe perimeter (p1->p2, p2->p3, p3->p4, p4->p1)
+        edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+        edgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+        edgePositions.push(p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+        edgePositions.push(p4.x, p4.y, p4.z, p1.x, p1.y, p1.z);
+      }
 
       if (isSel) {
         selectedPositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
@@ -1309,7 +1887,111 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
     }
   }
 
-  if (positions.length > 0) {
+  if (isTypeMode) {
+    // 1. NORMAL Collision Hull (Deep Sapphire Glass)
+    if (normalPositions.length > 0) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(normalPositions, 3));
+      geom.computeVertexNormals();
+      geom.computeBoundingSphere();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x1e3a8a, // Deep Sapphire for Physical Collision Hull
+        roughness: 0.35,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.22, // Translucent glass tint so internal beams remain fully visible
+        depthWrite: false
+      });
+      const m = new THREE.Mesh(geom, mat);
+      m.name = 'triangles_surface_normal';
+      m.userData = { surfaceLookup: normalSurfaceLookup, type: 'surface_mesh' };
+      group.add(m);
+
+      if (normalEdgePositions.length > 0) {
+        const eGeom = new THREE.BufferGeometry();
+        eGeom.setAttribute('position', new THREE.Float32BufferAttribute(normalEdgePositions, 3));
+        const eMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.55 });
+        const eLines = new THREE.LineSegments(eGeom, eMat);
+        eLines.name = 'surfaces_wireframe_normal';
+        group.add(eLines);
+      }
+    }
+
+    // 2. NONCOLLIDABLE Aerodynamics (Deep Emerald Tint)
+    if (aeroPositions.length > 0) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(aeroPositions, 3));
+      geom.computeVertexNormals();
+      geom.computeBoundingSphere();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x065f46, // Deep Emerald Tint for Aerodynamic Only
+        roughness: 0.35,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.20,
+        depthWrite: false
+      });
+      const m = new THREE.Mesh(geom, mat);
+      m.name = 'triangles_surface_aero';
+      m.userData = { surfaceLookup: aeroSurfaceLookup, type: 'surface_mesh' };
+      group.add(m);
+
+      if (aeroEdgePositions.length > 0) {
+        const eGeom = new THREE.BufferGeometry();
+        eGeom.setAttribute('position', new THREE.Float32BufferAttribute(aeroEdgePositions, 3));
+        const eMat = new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.65 });
+        const eLines = new THREE.LineSegments(eGeom, eMat);
+        eLines.name = 'surfaces_wireframe_aero';
+        group.add(eLines);
+      }
+    }
+
+    // 3. PRESSURE Pneumatic Vessel (Deep Ruby Tint)
+    if (pressurePositions.length > 0) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(pressurePositions, 3));
+      geom.computeVertexNormals();
+      geom.computeBoundingSphere();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x881337, // Deep Ruby Tint for Pressurized Volume
+        roughness: 0.35,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false
+      });
+      const m = new THREE.Mesh(geom, mat);
+      m.name = 'triangles_surface_pressure';
+      m.userData = { surfaceLookup: pressureSurfaceLookup, type: 'surface_mesh' };
+      group.add(m);
+
+      if (pressureEdgePositions.length > 0) {
+        const eGeom = new THREE.BufferGeometry();
+        eGeom.setAttribute('position', new THREE.Float32BufferAttribute(pressureEdgePositions, 3));
+        const eMat = new THREE.LineBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.65 });
+        const eLines = new THREE.LineSegments(eGeom, eMat);
+        eLines.name = 'surfaces_wireframe_pressure';
+        group.add(eLines);
+      }
+    }
+
+    // Normal Vector Arrows overlay
+    if (showNormals && normalArrowPositions.length > 0) {
+      const normGeom = new THREE.BufferGeometry();
+      normGeom.setAttribute('position', new THREE.Float32BufferAttribute(normalArrowPositions, 3));
+      const normMat = new THREE.LineBasicMaterial({
+        color: 0x00e5ff,
+        transparent: true,
+        opacity: 0.95
+      });
+      const normLines = new THREE.LineSegments(normGeom, normMat);
+      normLines.name = 'surface_normal_arrows';
+      group.add(normLines);
+    }
+  } else if (positions.length > 0) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.computeVertexNormals();
@@ -1345,14 +2027,14 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
       backMesh.userData = { surfaceLookup, type: 'surface_mesh' };
       group.add(backMesh);
     } else {
-      // Standard slate blue double-sided surface
+      // Normal View: Translucent Deep Royal Sapphire Glass (triadic contrast with steel beams & white nodes)
       const material = new THREE.MeshStandardMaterial({
-        color: 0x3f51b5,
-        roughness: 0.4,
-        metalness: 0.1,
+        color: 0x2563eb,
+        roughness: 0.28,
+        metalness: 0.18,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.42,
+        opacity: isFocusActive ? 0.08 : 0.32,
         depthWrite: false
       });
       const mesh = new THREE.Mesh(geometry, material);
@@ -1366,9 +2048,9 @@ export function buildTrianglesGroup(trianglesDict, nodesDict, quadsDict = null, 
       const edgeGeom = new THREE.BufferGeometry();
       edgeGeom.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
       const wireframeMaterial = new THREE.LineBasicMaterial({
-        color: faceOrientation ? 0xffffff : 0x7986cb,
+        color: faceOrientation ? 0xffffff : 0x818cf8,
         transparent: true,
-        opacity: faceOrientation ? 0.6 : 0.38
+        opacity: isFocusActive ? 0.15 : (faceOrientation ? 0.6 : 0.55)
       });
       const wireframeLines = new THREE.LineSegments(edgeGeom, wireframeMaterial);
       wireframeLines.name = 'surfaces_wireframe';
@@ -1466,9 +2148,18 @@ export function buildEnvironmentGroup() {
   const group = new THREE.Group();
   group.name = 'environment_group';
 
-  const gridHelper = new THREE.GridHelper(16, 32, 0x546e7a, 0x263238);
+  // Harmonized neutral ground grid for dark/gray editor theme
+  const gridHelper = new THREE.GridHelper(16, 32, 0x5e6878, 0x2e3440);
   gridHelper.position.y = 0;
   gridHelper.name = 'ground_grid';
+  if (gridHelper.material) {
+    if (Array.isArray(gridHelper.material)) {
+      gridHelper.material.forEach(m => { m.transparent = true; m.opacity = 0.75; });
+    } else {
+      gridHelper.material.transparent = true;
+      gridHelper.material.opacity = 0.75;
+    }
+  }
   group.add(gridHelper);
 
   const axesHelper = new THREE.AxesHelper(1.2);
@@ -1676,132 +2367,228 @@ export function buildFrontIndicatorGroup() {
  * Builds a dynamic 3D focus/highlight overlay group for code-hovered elements (node, beam, triangle, quad).
  * Fully decoupled from user selection states and compatible with 3D multi-select.
  *
- * @param {object} codeHoveredElement
+ * @param {object|Array} input - Hovered element, multi-element range, array, or { hovered, selected }
  * @param {object} nodesDict
  * @returns {THREE.Group}
  */
-export function buildCodeHoverGroup(codeHoveredElement, nodesDict) {
+export function buildCodeHoverGroup(input, nodesDict) {
   const group = new THREE.Group();
   group.name = 'code_hover_overlay_group';
-  if (!codeHoveredElement || !nodesDict) return group;
+  group.renderOrder = 999;
+  if (!input || !nodesDict) return group;
 
-  const { type } = codeHoveredElement;
+  const nodesToRender = [];
+  const beamsToRender = [];
+  const trianglesToRender = [];
+  const quadsToRender = [];
 
-  if (type === 'node' && codeHoveredElement.id && nodesDict[codeHoveredElement.id]) {
-    const node = nodesDict[codeHoveredElement.id];
-    const [px, py, pz] = extractNodeCoords(node);
-    const pos = beamngToThree(px, py, pz);
+  const seenNodeIds = new Set();
+  const seenBeamKeys = new Set();
+  const seenTriKeys = new Set();
+  const seenQuadKeys = new Set();
 
-    // Glowing cyan sphere
-    const sphereGeom = new THREE.SphereGeometry(0.045, 16, 16);
-    const sphereMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.75,
-      depthTest: false
-    });
-    const sphereMesh = new THREE.Mesh(sphereGeom, sphereMat);
-    sphereMesh.position.copy(pos);
-    group.add(sphereMesh);
-
-    // Glowing cyan ring
-    const ringGeom = new THREE.RingGeometry(0.065, 0.088, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.95,
-      depthTest: false
-    });
-    const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-    ringMesh.position.copy(pos);
-    ringMesh.rotation.x = Math.PI / 2;
-    group.add(ringMesh);
-  } else if (type === 'beam') {
-    const id1 = codeHoveredElement.id1;
-    const id2 = codeHoveredElement.id2;
-    if (id1 && id2 && nodesDict[id1] && nodesDict[id2]) {
-      const p1 = beamngToThree(...extractNodeCoords(nodesDict[id1]));
-      const p2 = beamngToThree(...extractNodeCoords(nodesDict[id2]));
-
-      const geom = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-      const mat = new THREE.LineBasicMaterial({
-        color: 0x00ffff,
-        linewidth: 4,
-        transparent: true,
-        opacity: 0.98,
-        depthTest: false
-      });
-      const line = new THREE.Line(geom, mat);
-      group.add(line);
-
-      // Add a highlighted cylinder around the beam for volume
-      const distance = p1.distanceTo(p2);
-      const cylGeom = new THREE.CylinderGeometry(0.02, 0.02, distance, 8);
-      const cylMat = new THREE.MeshBasicMaterial({
-        color: 0x00e5ff,
-        transparent: true,
-        opacity: 0.65,
-        depthTest: false
-      });
-      const cylMesh = new THREE.Mesh(cylGeom, cylMat);
-      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-      cylMesh.position.copy(mid);
-      cylMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3().subVectors(p2, p1).normalize());
-      group.add(cylMesh);
+  function ingestElement(el, isHovered = false) {
+    if (!el || !el.type) return;
+    if (el.type === 'node' && el.id) {
+      if (!seenNodeIds.has(el.id)) {
+        seenNodeIds.add(el.id);
+        nodesToRender.push({ ...el, isHovered });
+      }
+    } else if (el.type === 'beam') {
+      const bKey = el.beamKey || `${el.id1}_${el.id2}`;
+      if (!seenBeamKeys.has(bKey)) {
+        seenBeamKeys.add(bKey);
+        beamsToRender.push({ ...el, isHovered });
+      }
+    } else if (el.type === 'triangle' && el.nodes?.length >= 3) {
+      const tKey = el.key || el.nodes.join('_');
+      if (!seenTriKeys.has(tKey)) {
+        seenTriKeys.add(tKey);
+        trianglesToRender.push({ ...el, isHovered });
+      }
+    } else if (el.type === 'quad' && el.nodes?.length >= 4) {
+      const qKey = el.key || el.nodes.join('_');
+      if (!seenQuadKeys.has(qKey)) {
+        seenQuadKeys.add(qKey);
+        quadsToRender.push({ ...el, isHovered });
+      }
     }
-  } else if (type === 'triangle' || type === 'quad') {
-    const nodeIds = codeHoveredElement.nodes || [];
+  }
+
+  function ingestCollection(col, isHovered = false) {
+    if (!col) return;
+    if (Array.isArray(col)) {
+      col.forEach(item => ingestElement(item, isHovered));
+    } else if (col.type) {
+      ingestElement(col, isHovered);
+    } else if (col.nodes || col.beams || col.triangles || col.quads || col.all) {
+      if (Array.isArray(col.nodes)) col.nodes.forEach(item => ingestElement(item, isHovered));
+      if (Array.isArray(col.beams)) col.beams.forEach(item => ingestElement(item, isHovered));
+      if (Array.isArray(col.triangles)) col.triangles.forEach(item => ingestElement(item, isHovered));
+      if (Array.isArray(col.quads)) col.quads.forEach(item => ingestElement(item, isHovered));
+    }
+  }
+
+  if (input.hovered !== undefined || input.selected !== undefined) {
+    if (input.selected) ingestCollection(input.selected, false);
+    if (input.hovered) ingestElement(input.hovered, true);
+  } else {
+    ingestCollection(input, false);
+  }
+
+  // 1. Render Triangles and Quads (Faces + Wireframe Boundary Edges + Corner Vertex Spheres)
+  const surfacePositions = [];
+  const edgePositions = [];
+  const cornerVertexNodeIds = new Set();
+
+  for (const tri of trianglesToRender) {
+    const nodeIds = tri.nodes || [];
     const validPoints = nodeIds
       .filter(nid => nodesDict[nid])
       .map(nid => beamngToThree(...extractNodeCoords(nodesDict[nid])));
 
     if (validPoints.length >= 3) {
-      const positions = [];
-      const edgePositions = [];
+      const [p0, p1, p2] = validPoints;
+      surfacePositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
 
+      edgePositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+      edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+      edgePositions.push(p2.x, p2.y, p2.z, p0.x, p0.y, p0.z);
+    }
+  }
+
+  for (const quad of quadsToRender) {
+    const nodeIds = quad.nodes || [];
+    const validPoints = nodeIds
+      .filter(nid => nodesDict[nid])
+      .map(nid => beamngToThree(...extractNodeCoords(nodesDict[nid])));
+
+    if (validPoints.length >= 4) {
+      const [p0, p1, p2, p3] = validPoints;
       // Tri 1
-      positions.push(validPoints[0].x, validPoints[0].y, validPoints[0].z);
-      positions.push(validPoints[1].x, validPoints[1].y, validPoints[1].z);
-      positions.push(validPoints[2].x, validPoints[2].y, validPoints[2].z);
+      surfacePositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+      // Tri 2
+      surfacePositions.push(p0.x, p0.y, p0.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
 
-      edgePositions.push(validPoints[0].x, validPoints[0].y, validPoints[0].z, validPoints[1].x, validPoints[1].y, validPoints[1].z);
-      edgePositions.push(validPoints[1].x, validPoints[1].y, validPoints[1].z, validPoints[2].x, validPoints[2].y, validPoints[2].z);
-      edgePositions.push(validPoints[2].x, validPoints[2].y, validPoints[2].z, validPoints[0].x, validPoints[0].y, validPoints[0].z);
+      edgePositions.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
+      edgePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+      edgePositions.push(p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
+      edgePositions.push(p3.x, p3.y, p3.z, p0.x, p0.y, p0.z);
+    }
+  }
 
-      if (validPoints.length === 4) {
-        positions.push(validPoints[0].x, validPoints[0].y, validPoints[0].z);
-        positions.push(validPoints[2].x, validPoints[2].y, validPoints[2].z);
-        positions.push(validPoints[3].x, validPoints[3].y, validPoints[3].z);
+  if (surfacePositions.length > 0) {
+    const surfaceGeom = new THREE.BufferGeometry();
+    surfaceGeom.setAttribute('position', new THREE.Float32BufferAttribute(surfacePositions, 3));
+    surfaceGeom.computeVertexNormals();
+    const surfaceMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.50,
+      depthTest: false,
+      depthWrite: false
+    });
+    const surfaceMesh = new THREE.Mesh(surfaceGeom, surfaceMat);
+    surfaceMesh.renderOrder = 999;
+    group.add(surfaceMesh);
 
-        edgePositions.push(validPoints[2].x, validPoints[2].y, validPoints[2].z, validPoints[3].x, validPoints[3].y, validPoints[3].z);
-        edgePositions.push(validPoints[3].x, validPoints[3].y, validPoints[3].z, validPoints[0].x, validPoints[0].y, validPoints[0].z);
+    const edgeGeom = new THREE.BufferGeometry();
+    edgeGeom.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0x00e5ff,
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false
+    });
+    const edgeLines = new THREE.LineSegments(edgeGeom, edgeMat);
+    edgeLines.renderOrder = 999;
+    group.add(edgeLines);
+  }
+
+  // 2. Render Beams (Axial LineSegments + Volume Cylinders)
+  const beamLinePositions = [];
+
+  for (const b of beamsToRender) {
+    const { id1, id2 } = b;
+    if (id1 && id2 && nodesDict[id1] && nodesDict[id2]) {
+      const p1 = beamngToThree(...extractNodeCoords(nodesDict[id1]));
+      const p2 = beamngToThree(...extractNodeCoords(nodesDict[id2]));
+
+      beamLinePositions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+
+      // Volume cylinder
+      const distance = p1.distanceTo(p2);
+      if (distance > 0.001) {
+        const cylGeom = new THREE.CylinderGeometry(0.022, 0.022, distance, 8);
+        const cylMat = new THREE.MeshBasicMaterial({
+          color: 0x00e5ff,
+          transparent: true,
+          opacity: 0.70,
+          depthTest: false,
+          depthWrite: false
+        });
+        const cylMesh = new THREE.Mesh(cylGeom, cylMat);
+        const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+        cylMesh.position.copy(mid);
+        cylMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3().subVectors(p2, p1).normalize());
+        cylMesh.renderOrder = 999;
+        group.add(cylMesh);
       }
+    }
+  }
 
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geom.computeVertexNormals();
-      const mat = new THREE.MeshBasicMaterial({
+  if (beamLinePositions.length > 0) {
+    const bGeom = new THREE.BufferGeometry();
+    bGeom.setAttribute('position', new THREE.Float32BufferAttribute(beamLinePositions, 3));
+    const bMat = new THREE.LineBasicMaterial({
+      color: 0x00ffff,
+      linewidth: 3,
+      transparent: true,
+      opacity: 0.98,
+      depthTest: false,
+      depthWrite: false
+    });
+    const bLine = new THREE.LineSegments(bGeom, bMat);
+    bLine.renderOrder = 999;
+    group.add(bLine);
+  }
+
+  // 3. Render Nodes (Glowing Spheres + Cyan Rings)
+  for (const n of nodesToRender) {
+    if (n.id && nodesDict[n.id]) {
+      const [px, py, pz] = extractNodeCoords(nodesDict[n.id]);
+      const pos = beamngToThree(px, py, pz);
+
+      const sphereGeom = new THREE.SphereGeometry(0.048, 16, 16);
+      const sphereMat = new THREE.MeshBasicMaterial({
         color: 0x00ffff,
+        transparent: true,
+        opacity: 0.80,
+        depthTest: false,
+        depthWrite: false
+      });
+      const sphereMesh = new THREE.Mesh(sphereGeom, sphereMat);
+      sphereMesh.position.copy(pos);
+      sphereMesh.renderOrder = 999;
+      group.add(sphereMesh);
+
+      const ringGeom = new THREE.RingGeometry(0.065, 0.090, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x00e5ff,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.45,
-        depthTest: false
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      group.add(mesh);
-
-      const edgeGeom = new THREE.BufferGeometry();
-      edgeGeom.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
-      const edgeMat = new THREE.LineBasicMaterial({
-        color: 0x00e5ff,
-        linewidth: 2,
-        transparent: true,
         opacity: 0.95,
-        depthTest: false
+        depthTest: false,
+        depthWrite: false
       });
-      const edgeLines = new THREE.LineSegments(edgeGeom, edgeMat);
-      group.add(edgeLines);
+      const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+      ringMesh.position.copy(pos);
+      ringMesh.rotation.x = Math.PI / 2;
+      ringMesh.renderOrder = 999;
+      group.add(ringMesh);
     }
   }
 
@@ -1926,6 +2713,7 @@ export default {
   buildNodeLabelsGroup,
   buildBeamsGroup,
   buildTrianglesGroup,
+  computeConnectedTopology,
   buildMountingJointsGroup,
   buildCodeHoverGroup,
   buildEnvironmentGroup,

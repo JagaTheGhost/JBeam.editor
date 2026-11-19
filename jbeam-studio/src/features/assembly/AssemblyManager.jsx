@@ -5,7 +5,8 @@ import {
   EyeOffIcon,
   EditIcon,
   ChevronRightIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  CheckIcon
 } from '../../components/Icons.jsx';
 
 function safeFormatStr(val, fallback = '') {
@@ -238,6 +239,8 @@ export function AssemblyManager({
   onOpenPartInEditor,
   onAssembleVehicle,
   isAssembling = false,
+  viewportSource = 'assembly',
+  onChangeViewportSource = null,
   totalAssembledStats = { parts: 0, nodes: 0, beams: 0 }
 }) {
   const [filterQuery, setFilterQuery] = useState('');
@@ -275,7 +278,35 @@ export function AssemblyManager({
       <div className="assembly-header">
         <div className="assembly-title-row">
           <span className="assembly-title">VEHICLE ASSEMBLY</span>
-          <span className="assembly-badge">Multi-Part</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="assembly-badge">Multi-Part</span>
+            {onChangeViewportSource && (
+              <button
+                type="button"
+                className={`action-pill-btn ${viewportSource === 'assembly' ? 'active' : ''}`}
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 8px',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  border: '1px solid',
+                  background: viewportSource === 'assembly' ? 'rgba(255, 102, 0, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                  borderColor: viewportSource === 'assembly' ? 'var(--accent-color, #ff6600)' : 'rgba(255, 255, 255, 0.1)',
+                  color: viewportSource === 'assembly' ? '#ff9933' : '#aaa'
+                }}
+                onClick={() => onChangeViewportSource(viewportSource === 'assembly' ? 'activeDocument' : 'assembly')}
+                title={viewportSource === 'assembly' ? '3D Viewport is displaying full vehicle assembly' : 'Click to show assembled vehicle in 3D Viewport'}
+              >
+                {viewportSource === 'assembly' ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    3D Assembly Active <CheckIcon size={11} />
+                  </span>
+                ) : (
+                  'Show 3D Assembly'
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Configuration Selector */}

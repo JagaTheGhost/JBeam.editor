@@ -141,6 +141,7 @@ export class VisualMeshManager {
 
           let submeshVerts = 0;
           let submeshTris = 0;
+          let bbox = null;
           if (child.geometry) {
             const posAttr = child.geometry.attributes?.position;
             if (posAttr) {
@@ -154,13 +155,37 @@ export class VisualMeshManager {
               submeshTris = posAttr.count / 3;
               this.totalTriangles += submeshTris;
             }
+
+            try {
+              child.geometry.computeBoundingBox();
+              if (child.geometry.boundingBox) {
+                const b = child.geometry.boundingBox;
+                bbox = {
+                  min: { x: b.min.x, y: b.min.y, z: b.min.z },
+                  max: { x: b.max.x, y: b.max.y, z: b.max.z },
+                  size: {
+                    x: Math.abs(b.max.x - b.min.x),
+                    y: Math.abs(b.max.y - b.min.y),
+                    z: Math.abs(b.max.z - b.min.z)
+                  },
+                  center: {
+                    x: (b.min.x + b.max.x) / 2,
+                    y: (b.min.y + b.max.y) / 2,
+                    z: (b.min.z + b.max.z) / 2
+                  }
+                };
+              }
+            } catch (_) {
+              // Ignore bbox calculation error
+            }
           }
 
           this.submeshDetails.set(meshName, {
             name: meshName,
             vertices: submeshVerts,
             triangles: Math.round(submeshTris),
-            daeFile: fileName
+            daeFile: fileName,
+            bbox
           });
         }
       });
@@ -319,13 +344,21 @@ export class VisualMeshManager {
 
   /**
    * Filters submeshes so that only matching submeshes are visible in 3D.
-   * If allowedNames is null, undefined, or empty, ALL submeshes are visible.
+   * If allowedNames is null, undefined, or empty (and not forceExplicit), ALL submeshes are visible.
+   * If forceExplicit is true, only explicitly matching submeshes are visible (empty set = 0 visible).
    * Matching supports BeamNG flexbody conventions, Blender duplicate (.001) suffixes, and LOD suffixes.
    * @param {string[]|Set<string>|null} allowedNames
+   * @param {boolean} forceExplicit
    * @returns {number} count of visible matching submeshes
    */
-  filterSubmeshes(allowedNames) {
+  filterSubmeshes(allowedNames, forceExplicit = false) {
     if (!allowedNames || (Array.isArray(allowedNames) && allowedNames.length === 0) || (allowedNames instanceof Set && allowedNames.size === 0)) {
+      if (forceExplicit) {
+        for (const mesh of this.allMeshes) {
+          mesh.visible = false;
+        }
+        return 0;
+      }
       for (const mesh of this.allMeshes) {
         mesh.visible = true;
       }
@@ -397,7 +430,8 @@ export class VisualMeshManager {
     // Safety fallback: If 0 meshes matched the active part filter (e.g. untitled.jbeam,
     // empty document, or newly scaffolded part with 0 flexbodies defined), do NOT blank out the vehicle!
     // Show all body meshes so the user can see their model and use DAE Snap to author nodes.
-    if (matchCount === 0 && this.allMeshes.length > 0) {
+    // (Disabled if forceExplicit is true, where user explicitly chose 0 spawned meshes)
+    if (!forceExplicit && matchCount === 0 && this.allMeshes.length > 0) {
       for (const mesh of this.allMeshes) {
         if (!mesh.userData?.isHelperLine) {
           mesh.visible = true;

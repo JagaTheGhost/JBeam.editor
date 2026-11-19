@@ -566,8 +566,10 @@ export function updateBeamTypeLossless(sourceText, partName, id1, id2, newBeamTy
 
     for (const k of keys) {
       const row = section[k];
-      if (Array.isArray(row) && row.__meta?.range) {
-        if ((row[0] === targetId1 && row[1] === targetId2) || (row[0] === targetId2 && row[1] === targetId1)) {
+      if (row && (Array.isArray(row) || row.__meta?.type === 'array' || row['0'] !== undefined) && row.__meta?.range) {
+        const r0 = row[0] ?? row['0'];
+        const r1 = row[1] ?? row['1'];
+        if ((r0 === targetId1 && r1 === targetId2) || (r0 === targetId2 && r1 === targetId1)) {
           matchedRow = row;
           break;
         }
@@ -591,17 +593,21 @@ export function updateBeamTypeLossless(sourceText, partName, id1, id2, newBeamTy
     const hasTrailingComma = oldRowText.trim().endsWith(',');
     const comma = hasTrailingComma ? ',' : '';
 
+    const r0 = matchedRow[0] ?? matchedRow['0'];
+    const r1 = matchedRow[1] ?? matchedRow['1'];
+    const r2 = matchedRow[2] ?? matchedRow['2'];
+
     let newRowText = '';
-    if (matchedRow.length >= 3 && typeof matchedRow[2] === 'object' && matchedRow[2] !== null) {
-      const opts = { ...matchedRow[2] };
+    if (r2 && typeof r2 === 'object') {
+      const opts = { ...r2 };
       opts.beamType = normalizedType;
       delete opts.__meta;
-      newRowText = `["${matchedRow[0]}", "${matchedRow[1]}", ${JSON.stringify(opts)}]${comma}`;
+      newRowText = `["${r0}", "${r1}", ${JSON.stringify(opts)}]${comma}`;
     } else {
       if (normalizedType === '|NORMAL') {
-        newRowText = `["${matchedRow[0]}", "${matchedRow[1]}"]${comma}`;
+        newRowText = `["${r0}", "${r1}"]${comma}`;
       } else {
-        newRowText = `["${matchedRow[0]}", "${matchedRow[1]}", {"beamType": "${normalizedType}"}]${comma}`;
+        newRowText = `["${r0}", "${r1}", {"beamType": "${normalizedType}"}]${comma}`;
       }
     }
 
@@ -627,6 +633,235 @@ export function updateBeamTypeLossless(sourceText, partName, id1, id2, newBeamTy
 
   return { updatedText: currentText, error: null };
 }
+
+/**
+ * Updates arbitrary physical properties (e.g. beamSpring, beamDamp, beamDeform, beamStrength, beamPrecompression)
+ * of a beam losslessly in the source JBeam. Supports bilateral symmetry.
+ */
+export function updateBeamPropertiesLossless(sourceText, partName, id1, id2, newProperties = {}, symmetry = false) {
+  if (!sourceText || !id1 || !id2 || !newProperties || typeof newProperties !== 'object') {
+    return { updatedText: sourceText, error: 'Invalid parameters' };
+  }
+
+  let currentText = sourceText;
+
+  const updateSingleBeam = (txt, targetId1, targetId2) => {
+    let dataBundle;
+    try {
+      dataBundle = decodeWithMeta(txt, 'document.jbeam', false);
+    } catch (err) {
+      return { updatedText: txt, error: `Parse error: ${err.message}` };
+    }
+
+    const parts = dataBundle.data;
+    let targetPartName = partName;
+    if (!parts[targetPartName]) {
+      const validKeys = Object.keys(parts).filter(k => k !== '__meta');
+      if (validKeys.length > 0) targetPartName = validKeys[0];
+      else return { updatedText: txt, error: `Part '${partName}' not found` };
+    }
+
+    const part = parts[targetPartName];
+    const sectionName = (part.beams ? 'beams' : (part.hydros ? 'hydros' : null));
+    if (!sectionName || !part[sectionName]) {
+      return { updatedText: txt, error: `Section 'beams' not found in part '${targetPartName}'` };
+    }
+
+    const section = part[sectionName];
+    const keys = Object.keys(section).filter(k => k !== '__meta');
+    let matchedRow = null;
+
+    for (const k of keys) {
+      const row = section[k];
+      if (row && (Array.isArray(row) || row.__meta?.type === 'array' || row['0'] !== undefined) && row.__meta?.range) {
+        const r0 = row[0] ?? row['0'];
+        const r1 = row[1] ?? row['1'];
+        if ((r0 === targetId1 && r1 === targetId2) || (r0 === targetId2 && r1 === targetId1)) {
+          matchedRow = row;
+          break;
+        }
+      }
+    }
+
+    if (!matchedRow) {
+      return { updatedText: txt, error: `Beam '${targetId1}' ↔ '${targetId2}' not found` };
+    }
+
+    const [startLine, startCol, endLine, endCol] = matchedRow.__meta.range;
+    const lines = txt.split('\n');
+
+    let oldRowText = '';
+    if (startLine === endLine) {
+      oldRowText = lines[startLine].substring(startCol, endCol);
+    } else {
+      oldRowText = lines.slice(startLine, endLine + 1).join('\n');
+    }
+
+    const hasTrailingComma = oldRowText.trim().endsWith(',');
+    const comma = hasTrailingComma ? ',' : '';
+
+    const r0 = matchedRow[0] ?? matchedRow['0'];
+    const r1 = matchedRow[1] ?? matchedRow['1'];
+    const r2 = matchedRow[2] ?? matchedRow['2'];
+
+    let opts = {};
+    if (r2 && typeof r2 === 'object') {
+      opts = { ...r2 };
+      delete opts.__meta;
+    }
+
+    for (const [propKey, propVal] of Object.entries(newProperties)) {
+      if (propVal === undefined || propVal === null || propVal === '') {
+        delete opts[propKey];
+      } else {
+        opts[propKey] = propVal;
+      }
+    }
+
+    let newRowText = '';
+    if (Object.keys(opts).length > 0) {
+      newRowText = `["${r0}", "${r1}", ${JSON.stringify(opts)}]${comma}`;
+    } else {
+      newRowText = `["${r0}", "${r1}"]${comma}`;
+    }
+
+    const updated = replaceRangeInText(txt, matchedRow.__meta.range, newRowText);
+    return { updatedText: updated, error: null };
+  };
+
+  const res1 = updateSingleBeam(currentText, id1, id2);
+  if (res1.error) return res1;
+  currentText = res1.updatedText;
+
+  const isSym = typeof symmetry === 'object' ? Boolean(symmetry?.symmetry) : Boolean(symmetry);
+  if (isSym) {
+    const symId1 = getSymmetricNodeId(id1);
+    const symId2 = getSymmetricNodeId(id2);
+    if (symId1 && symId2 && (symId1 !== id1 || symId2 !== id2)) {
+      const res2 = updateSingleBeam(currentText, symId1, symId2);
+      if (!res2.error) {
+        currentText = res2.updatedText;
+      }
+    }
+  }
+
+  return { updatedText: currentText, error: null };
+}
+
+/**
+ * Updates physical properties (nodeWeight, nodeMaterial, frictionCoef, group) of a node losslessly
+ * in the source JBeam. Supports bilateral symmetry.
+ */
+export function updateNodePropertiesLossless(sourceText, partName, nodeId, newProperties = {}, symmetry = false) {
+  if (!sourceText || !nodeId || !newProperties || typeof newProperties !== 'object') {
+    return { updatedText: sourceText, error: 'Invalid parameters' };
+  }
+
+  let currentText = sourceText;
+
+  const updateSingleNode = (txt, targetId) => {
+    let dataBundle;
+    try {
+      dataBundle = decodeWithMeta(txt, 'document.jbeam', false);
+    } catch (err) {
+      return { updatedText: txt, error: `Parse error: ${err.message}` };
+    }
+
+    const parts = dataBundle.data;
+    let targetPartName = partName;
+    if (!parts[targetPartName]) {
+      const validKeys = Object.keys(parts).filter(k => k !== '__meta');
+      if (validKeys.length > 0) targetPartName = validKeys[0];
+      else return { updatedText: txt, error: `Part '${partName}' not found` };
+    }
+
+    const part = parts[targetPartName];
+    if (!part?.nodes) {
+      return { updatedText: txt, error: `Section 'nodes' not found in part '${targetPartName}'` };
+    }
+
+    const section = part.nodes;
+    const keys = Object.keys(section).filter(k => k !== '__meta');
+    let matchedRow = null;
+
+    for (const k of keys) {
+      const row = section[k];
+      if (row && (Array.isArray(row) || row.__meta?.type === 'array' || row['0'] !== undefined) && row.__meta?.range) {
+        const r0 = row[0] ?? row['0'];
+        if (r0 === targetId) {
+          matchedRow = row;
+          break;
+        }
+      }
+    }
+
+    if (!matchedRow) {
+      return { updatedText: txt, error: `Node '${targetId}' not found in part '${targetPartName}'` };
+    }
+
+    const [startLine, startCol, endLine, endCol] = matchedRow.__meta.range;
+    const lines = txt.split('\n');
+
+    let oldRowText = '';
+    if (startLine === endLine) {
+      oldRowText = lines[startLine].substring(startCol, endCol);
+    } else {
+      oldRowText = lines.slice(startLine, endLine + 1).join('\n');
+    }
+
+    const hasTrailingComma = oldRowText.trim().endsWith(',');
+    const comma = hasTrailingComma ? ',' : '';
+
+    const r0 = matchedRow[0] ?? matchedRow['0'];
+    const r1 = matchedRow[1] ?? matchedRow['1'];
+    const r2 = matchedRow[2] ?? matchedRow['2'];
+    const r3 = matchedRow[3] ?? matchedRow['3'];
+    const r4 = matchedRow[4] ?? matchedRow['4'];
+
+    let opts = {};
+    if (r4 && typeof r4 === 'object') {
+      opts = { ...r4 };
+      delete opts.__meta;
+    }
+
+    for (const [propKey, propVal] of Object.entries(newProperties)) {
+      if (propVal === undefined || propVal === null || propVal === '') {
+        delete opts[propKey];
+      } else {
+        opts[propKey] = propVal;
+      }
+    }
+
+    let newRowText = '';
+    if (Object.keys(opts).length > 0) {
+      newRowText = `["${r0}", ${r1}, ${r2}, ${r3}, ${JSON.stringify(opts)}]${comma}`;
+    } else {
+      newRowText = `["${r0}", ${r1}, ${r2}, ${r3}]${comma}`;
+    }
+
+    const updated = replaceRangeInText(txt, matchedRow.__meta.range, newRowText);
+    return { updatedText: updated, error: null };
+  };
+
+  const res1 = updateSingleNode(currentText, nodeId);
+  if (res1.error) return res1;
+  currentText = res1.updatedText;
+
+  const isSym = typeof symmetry === 'object' ? Boolean(symmetry?.symmetry) : Boolean(symmetry);
+  if (isSym) {
+    const symId = getSymmetricNodeId(nodeId);
+    if (symId && symId !== nodeId) {
+      const res2 = updateSingleNode(currentText, symId);
+      if (!res2.error) {
+        currentText = res2.updatedText;
+      }
+    }
+  }
+
+  return { updatedText: currentText, error: null };
+}
+
+
 
 /**
  * Deletes a triangle by its 3 vertex nodes losslessly.
@@ -913,10 +1148,14 @@ export function extrudeNodesLossless(
 export function subdivideBeamLossless(
   sourceText,
   partName,
-  { id1, id2, newNodeId, newPos, properties = {} },
+  { id1, id2, newNodeId, newPos, newNodes = [], properties = {} },
   symmetry = false
 ) {
-  if (!sourceText || !id1 || !id2 || !newNodeId || !Array.isArray(newPos)) {
+  const nodesToInsert = (Array.isArray(newNodes) && newNodes.length > 0)
+    ? newNodes
+    : (newNodeId && Array.isArray(newPos) ? [{ id: newNodeId, pos: newPos }] : []);
+
+  if (!sourceText || !id1 || !id2 || nodesToInsert.length === 0) {
     return { updatedText: sourceText, error: 'Invalid parameters for beam subdivision' };
   }
 
@@ -940,45 +1179,39 @@ export function subdivideBeamLossless(
     }
   }
 
-  // 2. Add the new intermediate node (with symmetry)
-  const nodeRes = addNodeLossless(
-    currentText,
-    partName,
-    { id: newNodeId, pos: newPos },
-    symmetry
-  );
-  if (nodeRes.error) {
-    return { updatedText: sourceText, error: `Failed to insert intermediate node: ${nodeRes.error}` };
+  // 2. Add each intermediate node (with symmetry)
+  for (const n of nodesToInsert) {
+    const nodeRes = addNodeLossless(
+      currentText,
+      partName,
+      { id: n.id, pos: n.pos },
+      symmetry
+    );
+    if (nodeRes.error) {
+      return { updatedText: sourceText, error: `Failed to insert intermediate node: ${nodeRes.error}` };
+    }
+    currentText = nodeRes.updatedText;
   }
-  currentText = nodeRes.updatedText;
 
-  // 3. Add first split beam segment [id1 -> newNodeId]
-  const beam1Res = addBeamLossless(
-    currentText,
-    partName,
-    { id1, id2: newNodeId, properties },
-    symmetry
-  );
-  if (beam1Res.error) {
-    return { updatedText: sourceText, error: `Failed to insert first split beam: ${beam1Res.error}` };
+  // 3. Chain the beam segments [id1 -> node1 -> node2 -> ... -> id2]
+  const chain = [id1, ...nodesToInsert.map(n => n.id), id2];
+  for (let k = 0; k < chain.length - 1; k++) {
+    const segRes = addBeamLossless(
+      currentText,
+      partName,
+      { id1: chain[k], id2: chain[k + 1], properties },
+      symmetry
+    );
+    if (segRes.error) {
+      return { updatedText: sourceText, error: `Failed to insert split beam segment: ${segRes.error}` };
+    }
+    currentText = segRes.updatedText;
   }
-  currentText = beam1Res.updatedText;
-
-  // 4. Add second split beam segment [newNodeId -> id2]
-  const beam2Res = addBeamLossless(
-    currentText,
-    partName,
-    { id1: newNodeId, id2, properties },
-    symmetry
-  );
-  if (beam2Res.error) {
-    return { updatedText: sourceText, error: `Failed to insert second split beam: ${beam2Res.error}` };
-  }
-  currentText = beam2Res.updatedText;
 
   return {
     updatedText: currentText,
-    newNodeId,
+    newNodeId: nodesToInsert[0]?.id,
+    newNodes: nodesToInsert,
     error: null
   };
 }
@@ -1009,14 +1242,14 @@ export function renameNodeLossless(sourceText, partName, oldNodeId, newNodeId, o
   const trimmedOld = String(oldNodeId).trim();
   const trimmedNew = String(newNodeId).trim();
   if (trimmedOld === trimmedNew) {
-    return { updatedText: sourceText, renamedCount: 0, error: null };
+    return { updatedText: sourceText, renamedCount: 0, replacements: [], error: null };
   }
 
   let dataBundle;
   try {
     dataBundle = decodeWithMeta(sourceText, 'document.jbeam', true);
   } catch (err) {
-    return { updatedText: sourceText, renamedCount: 0, error: `Parse error: ${err.message}` };
+    return { updatedText: sourceText, renamedCount: 0, replacements: [], error: `Parse error: ${err.message}` };
   }
 
   const parts = dataBundle.data;
@@ -1028,7 +1261,7 @@ export function renameNodeLossless(sourceText, partName, oldNodeId, newNodeId, o
   } else {
     const validKeys = Object.keys(parts).filter(k => k !== '__meta');
     if (validKeys.length > 0) targetParts = [validKeys[0]];
-    else return { updatedText: sourceText, renamedCount: 0, error: `Part '${partName}' not found` };
+    else return { updatedText: sourceText, renamedCount: 0, replacements: [], error: `Part '${partName}' not found` };
   }
 
   // Build rename mappings: oldId -> newId, and if symmetry enabled, oldSym -> newSym
@@ -1114,7 +1347,7 @@ export function renameNodeLossless(sourceText, partName, oldNodeId, newNodeId, o
   }
 
   if (replacements.length === 0) {
-    return { updatedText: sourceText, renamedCount: 0, error: null };
+    return { updatedText: sourceText, renamedCount: 0, replacements: [], error: null };
   }
 
   // Sort descending: highest line first, then highest column first
@@ -1131,6 +1364,7 @@ export function renameNodeLossless(sourceText, partName, oldNodeId, newNodeId, o
   return {
     updatedText: currentText,
     renamedCount: replacements.length,
+    replacements,
     error: null
   };
 }
@@ -1385,6 +1619,9 @@ export default {
   extrudeNodesLossless,
   subdivideBeamLossless,
   renameNodeLossless,
+  updateBeamTypeLossless,
+  updateBeamPropertiesLossless,
+  updateNodePropertiesLossless,
   prefixAllNodesInPart,
   getPartPrefix,
   flipSurfaceLossless,

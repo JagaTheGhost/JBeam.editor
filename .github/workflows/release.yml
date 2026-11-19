@@ -52,8 +52,8 @@ jobs:
           npm install
           npx electron-builder --win portable --publish never
           $exe = Get-ChildItem -Path "dist" -Filter "*.exe" | Select-Object -First 1
-          if ($exe -and $exe.Name -ne "JBeam.editor-Setup-v0.1Beta.exe") {
-            Copy-Item -Path $exe.FullName -Destination "dist/JBeam.editor-Setup-v0.1Beta.exe" -Force
+          if ($exe -and $exe.Name -ne "JBeam.editor-Setup-v0.2Beta.exe") {
+            Copy-Item -Path $exe.FullName -Destination "dist/JBeam.editor-Setup-v0.2Beta.exe" -Force
           }
 
       # ----------------------------------------------------
