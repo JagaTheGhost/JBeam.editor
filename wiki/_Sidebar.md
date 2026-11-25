@@ -8,4 +8,3 @@
 * **[Physics Diagnostics & Wheels](Physics-Diagnostics-and-Wheels)**
 * **[Inspector, Structure & Diagnostics](Inspector-Structure-and-Diagnostics)**
 * **[Keyboard Shortcuts](Keyboard-Shortcuts)**
-* **[Screenshots Checklist](Screenshots-Checklist)**

@@ -19,7 +19,6 @@ Welcome to the official **JBeam.editor** documentation! This wiki documents ever
 | **[Physics Diagnostics & Wheels](Physics-Diagnostics-and-Wheels)** | `PressureWheels` & `Ghost Wheels`, TorsionBars, SlideNodes, CoG, Aerodynamics & CoP, `refNodes`, Cockpit Cameras |
 | **[Inspector, Structure & Diagnostics](Inspector-Structure-and-Diagnostics)** | Element Inspector, Structure Tree hover isolation, Problems severity filters, BeamNG Game Log, SimConnection |
 | **[Keyboard Shortcuts](Keyboard-Shortcuts)** | Complete cheat sheet of editor, viewport, selection, and simulation shortcuts |
-| **[Screenshots Checklist](Screenshots-Checklist)** | Exact list of screenshots to capture for this Wiki and `README.md` |
 
 ---
 

@@ -44,7 +44,7 @@
 - **GitHub Wiki (Full Feature Reference)**: [`wiki/Home.md`](wiki/Home.md)
   - [Getting Started](wiki/Getting-Started.md) · [File Explorer & Code Editor](wiki/File-Explorer-and-Code-Editor.md) · [3D Viewport & View Modes](wiki/3D-Viewport-and-View-Modes.md)
   - [3D Modeling & Selection Tools](wiki/3D-Modeling-and-Selection-Tools.md) · [Physics Diagnostics & Wheels](wiki/Physics-Diagnostics-and-Wheels.md) · [Inspector, Structure & Diagnostics](wiki/Inspector-Structure-and-Diagnostics.md)
-  - [Keyboard Shortcuts](wiki/Keyboard-Shortcuts.md) · [Screenshots Checklist](wiki/Screenshots-Checklist.md)
+  - [Keyboard Shortcuts](wiki/Keyboard-Shortcuts.md)
 - **Interactive HTML Manual**: [`docs/index.html`](docs/index.html)
 - **Markdown Reference**: [`docs/README.md`](docs/README.md)
 
