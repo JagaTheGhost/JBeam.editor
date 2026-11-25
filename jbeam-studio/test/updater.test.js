@@ -20,6 +20,8 @@ export function runUpdaterTests() {
   // Test 1: Version Comparison
   assert.strictEqual(isNewer('0.2.1', '0.2.0'), true, '0.2.1 should be newer than 0.2.0');
   assert.strictEqual(isNewer('v0.3Beta', '0.2.0'), true, 'v0.3Beta should be newer than 0.2.0');
+  assert.strictEqual(isNewer('v0.3Beta', '0.3.0'), false, 'v0.3Beta should match 0.3.0 and not loop');
+  assert.strictEqual(isNewer('v0.3.1Beta', '0.3.0'), true, 'v0.3.1Beta should be newer than 0.3.0');
   assert.strictEqual(isNewer('1.0.0', '0.9.9'), true, '1.0.0 should be newer than 0.9.9');
   assert.strictEqual(isNewer('0.2.0', '0.2.0'), false, 'Same version should not be newer');
   assert.strictEqual(isNewer('0.1.9', '0.2.0'), false, 'Older version should not be newer');

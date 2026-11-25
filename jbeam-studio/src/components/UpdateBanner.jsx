@@ -24,6 +24,14 @@ export function UpdateBanner({ updateInfo, onDismiss }) {
   const [devNotice, setDevNotice] = useState('');
 
   useEffect(() => {
+    setSelectedMode(defaultMode);
+    setDownloadState('idle');
+    setStageResult(null);
+    setErrorMsg('');
+    setDevNotice('');
+  }, [updateInfo?.latestVersion, defaultMode]);
+
+  useEffect(() => {
     if (!window.jbeamAPI?.onUpdateProgress) return;
     const unsub = window.jbeamAPI.onUpdateProgress((prog) => {
       setProgress(prog);

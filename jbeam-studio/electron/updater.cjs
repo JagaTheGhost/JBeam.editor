@@ -8,14 +8,18 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync, spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { app, shell } = require('electron');
 
 const DEFAULT_REPO = 'JagaTheGhost/JBeam.editor';
 
 function parseVersion(vStr) {
   if (!vStr) return [0, 0, 0];
-  const cleaned = vStr.replace(/^v/i, '').split('-')[0];
+  const cleaned = String(vStr)
+    .trim()
+    .replace(/^v/i, '')
+    .split('-')[0]
+    .replace(/(beta|alpha|rc).*$/i, '');
   return cleaned.split('.').map(n => parseInt(n, 10) || 0);
 }
 
@@ -133,8 +137,20 @@ async function fetchLatestRelease(repo = DEFAULT_REPO) {
   return await fetchJsonUrl(`https://api.github.com/repos/${repo}/releases/latest`);
 }
 
-function downloadFile(url, destPath, onProgress) {
+function downloadFile(url, destPath, onProgress, redirectCount = 0) {
   return new Promise((resolve, reject) => {
+    if (redirectCount > 8) {
+      return reject(new Error('Too many redirects while downloading update'));
+    }
+
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      fs.unlink(destPath, () => {});
+      reject(err);
+    };
+
     const parsed = new URL(url);
     const client = parsed.protocol === 'https:' ? https : http;
 
@@ -144,22 +160,31 @@ function downloadFile(url, destPath, onProgress) {
         'Accept': 'application/octet-stream'
       }
     }, (res) => {
-      // Follow redirects (GitHub Release assets redirect to AWS S3)
+      // Follow redirects (GitHub Release assets redirect to objects.githubusercontent.com / AWS S3)
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return downloadFile(res.headers.location, destPath, onProgress).then(resolve).catch(reject);
+        res.resume();
+        const nextUrl = new URL(res.headers.location, url).toString();
+        return downloadFile(nextUrl, destPath, onProgress, redirectCount + 1)
+          .then((p) => { if (!settled) { settled = true; resolve(p); } })
+          .catch(fail);
       }
 
       if (res.statusCode !== 200) {
-        return reject(new Error(`Download failed with HTTP ${res.statusCode}`));
+        res.resume();
+        return fail(new Error(`Download failed with HTTP ${res.statusCode}`));
       }
 
       const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
       let receivedBytes = 0;
-      let startTime = Date.now();
+      const startTime = Date.now();
       let lastReportTime = startTime;
       let lastReceived = 0;
 
       const fileStream = fs.createWriteStream(destPath);
+      fileStream.on('error', (err) => {
+        req.destroy();
+        fail(new Error(`Failed to write update file: ${err.message}`));
+      });
 
       res.on('data', (chunk) => {
         receivedBytes += chunk.length;
@@ -192,7 +217,13 @@ function downloadFile(url, destPath, onProgress) {
       });
 
       res.on('end', () => {
+        if (!res.complete) {
+          fileStream.close(() => fail(new Error('Download interrupted before completion')));
+          return;
+        }
         fileStream.end(() => {
+          if (settled) return;
+          settled = true;
           if (onProgress) {
             onProgress({
               percent: 100,
@@ -209,45 +240,70 @@ function downloadFile(url, destPath, onProgress) {
       });
 
       res.on('error', (err) => {
-        fileStream.close();
-        fs.unlink(destPath, () => {});
-        reject(err);
+        fileStream.close(() => fail(err));
       });
     });
 
-    req.on('error', (err) => {
-      fs.unlink(destPath, () => {});
-      reject(err);
-    });
+    req.on('error', fail);
 
     req.setTimeout(60000, () => {
       req.destroy();
-      fs.unlink(destPath, () => {});
-      reject(new Error('Download connection timed out'));
+      fail(new Error('Download connection timed out'));
     });
   });
 }
 
-function extractZip(zipPath, targetDir) {
+function execFileAsync(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true }, (err, _stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr?.trim() || err.message));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function extractZip(zipPath, targetDir) {
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
   try {
-    // Windows 10/11 native tar.exe (fastest extraction)
-    const cmd = `tar -xf "${zipPath}" -C "${targetDir}"`;
-    execSync(cmd, { stdio: ['ignore', 'ignore', 'ignore'] });
-    return true;
-  } catch (err) {
+    // Windows 10/11 native tar.exe (non-blocking)
+    await execFileAsync('tar.exe', ['-xf', zipPath, '-C', targetDir]);
+  } catch (_tarErr) {
+    // Clean partial extraction before PowerShell fallback
     try {
-      // Fallback: PowerShell Expand-Archive
-      const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${targetDir}' -Force"`;
-      execSync(psCmd, { stdio: ['ignore', 'ignore', 'ignore'] });
-      return true;
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (_e) {}
+
+    try {
+      const escapedZip = zipPath.replace(/'/g, "''");
+      const escapedTarget = targetDir.replace(/'/g, "''");
+      await execFileAsync('powershell.exe', [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-Command',
+        `Expand-Archive -LiteralPath '${escapedZip}' -DestinationPath '${escapedTarget}' -Force`
+      ]);
     } catch (psErr) {
       throw new Error(`Failed to extract update package: ${psErr.message}`);
     }
   }
+
+  // Verify extracted payload actually contains app files
+  const appRoot = findAppRootInStaging(targetDir);
+  const hasAppBinary =
+    fs.existsSync(path.join(appRoot, 'JBeam.editor.exe')) ||
+    fs.existsSync(path.join(appRoot, 'jbeam-studio.exe')) ||
+    fs.existsSync(path.join(appRoot, 'resources'));
+  if (!hasAppBinary) {
+    throw new Error('Extracted update archive does not contain valid application files');
+  }
+  return true;
 }
 
 function findAppRootInStaging(stagingDir) {
@@ -280,9 +336,24 @@ function findAppRootInStaging(stagingDir) {
 
 function applyInPlaceUpdate({ stagingDir, targetDir, targetExe, oldPid }) {
   const sourceDir = findAppRootInStaging(stagingDir);
-  const scriptPath = path.join(os.tmpdir(), `jbeam_swap_updater_${Date.now()}.bat`);
+  const ts = Date.now();
+  const scriptPath = path.join(os.tmpdir(), `jbeam_swap_updater_${ts}.bat`);
+  const elevatedScriptPath = path.join(os.tmpdir(), `jbeam_swap_elevated_${ts}.bat`);
 
-  // Detached Windows batch script: waits for old PID to exit, overwrites app files, and relaunches
+  // Clean worker script used when UAC elevation is required (avoids nested cmd/PowerShell quote escaping issues)
+  const elevatedContent = `@echo off
+setlocal
+timeout /t 2 /nobreak >nul
+robocopy "${sourceDir}" "${targetDir}" /E /R:10 /W:1 /NP /NFL /NDL /NJH /NJS >nul 2>&1
+if errorlevel 8 (
+    xcopy "${sourceDir}\\*" "${targetDir}\\" /E /Y /Q /H /R >nul 2>&1
+)
+rmdir /s /q "${stagingDir}" >nul 2>&1
+start "" "${targetExe}"
+del "%~f0" >nul 2>&1
+`;
+
+  // Detached Windows batch script: waits for old PID + child processes to exit, overwrites app files, and relaunches
   const scriptContent = `@echo off
 setlocal enabledelayedexpansion
 
@@ -291,27 +362,34 @@ set "TARGET_DIR=${targetDir}"
 set "SOURCE_DIR=${sourceDir}"
 set "TARGET_EXE=${targetExe}"
 set "STAGING_ROOT=${stagingDir}"
+set "ELEVATED_BAT=${elevatedScriptPath}"
 
-:: 1. Wait for old PID to exit
+:: 1. Wait for exact main PID to exit (CSV format prevents partial PID matches)
+set /a WAIT_COUNT=0
 :WAIT_PID
 timeout /t 1 /nobreak >nul
-tasklist /FI "PID eq %OLD_PID%" 2>nul | findstr /i "%OLD_PID%" >nul
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% GEQ 30 goto AFTER_WAIT
+tasklist /FI "PID eq %OLD_PID%" /FO CSV /NH 2>nul | findstr /c:",\"%OLD_PID%\"," >nul
 if not errorlevel 1 goto WAIT_PID
 
-timeout /t 1 /nobreak >nul
+:AFTER_WAIT
+:: Give Electron child processes (GPU/Renderer) a moment to release app.asar locks
+timeout /t 2 /nobreak >nul
 
 :: 2. Check if we have write access to TARGET_DIR
 echo. > "%TARGET_DIR%\\.update_perm_test" 2>nul
 if not exist "%TARGET_DIR%\\.update_perm_test" (
-    :: Protected directory (e.g. C:\\Program Files) - Elevate via PowerShell
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd -ArgumentList '/c timeout /t 1 /nobreak >nul & robocopy \"\"%SOURCE_DIR%\"\" \"\"%TARGET_DIR%\"\" /E /R:3 /W:1 /NP /NFL /NDL /NJH /NJS & if errorlevel 8 ( xcopy \"\"%SOURCE_DIR%\\*\"\" \"\"%TARGET_DIR%\\\"\" /E /Y /Q /H /R ) & rmdir /s /q \"\"%STAGING_ROOT%\"\" & start \"\" \"\"%TARGET_EXE%\"\"' -Verb RunAs -WindowStyle Hidden"
+    :: Protected directory (e.g. C:\\Program Files) - Elevate clean worker script via PowerShell
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%ELEVATED_BAT%' -Verb RunAs -WindowStyle Hidden"
     del "%~f0" >nul 2>&1
     exit /b
 )
 del "%TARGET_DIR%\\.update_perm_test" >nul 2>&1
+del "%ELEVATED_BAT%" >nul 2>&1
 
 :: 3. Perform swap using robocopy (retries on transient file locks), fallback to xcopy
-robocopy "%SOURCE_DIR%" "%TARGET_DIR%" /E /R:3 /W:1 /NP /NFL /NDL /NJH /NJS >nul 2>&1
+robocopy "%SOURCE_DIR%" "%TARGET_DIR%" /E /R:10 /W:1 /NP /NFL /NDL /NJH /NJS >nul 2>&1
 if errorlevel 8 (
     xcopy "%SOURCE_DIR%\\*" "%TARGET_DIR%\\" /E /Y /Q /H /R >nul 2>&1
 )
@@ -326,6 +404,7 @@ start "" "%TARGET_EXE%"
 del "%~f0" >nul 2>&1
 `;
 
+  fs.writeFileSync(elevatedScriptPath, elevatedContent, 'utf8');
   fs.writeFileSync(scriptPath, scriptContent, 'utf8');
 
   // Spawn detached process
@@ -412,8 +491,8 @@ function registerUpdaterIpc(ipcMain, getMainWindow) {
           }
         });
 
-        // Extract to staging
-        extractZip(tempZip, stagingDir);
+        // Extract to staging (non-blocking)
+        await extractZip(tempZip, stagingDir);
 
         // Remove temporary zip file
         try { fs.unlinkSync(tempZip); } catch (e) {}
