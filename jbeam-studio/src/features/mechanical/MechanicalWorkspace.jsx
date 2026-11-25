@@ -1,7 +1,7 @@
 /**
  * JBeam Studio - Dedicated Mechanical Workspace
  * Coordinates the mechanical subsystems tree, component inspector,
- * 3D spatial isolation, and two-way JBeam synchronization.
+ * 3D spatial hover/focus isolation, and two-way JBeam synchronization.
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -12,17 +12,23 @@ import { MechanicalInspector } from './MechanicalInspector.jsx';
 export function MechanicalWorkspace({
   jbeamParts,
   compositeVehicleParts = null,
+  openTabsParts = null,
   workspaceIndex = null,
   activeDocumentText = '',
   activePartName = 'main',
   workspacePath = null,
   onNavigateToElement = null,
   onFocusNodeIn3D = null,
+  onHoverElement = null,
   onSelectSubmesh = null,
-  onIsolateMesh = null
+  onIsolateMesh = null,
+  onUpdateBeamProperties = null
 }) {
-  const [scope, setScope] = useState('assembly'); // 'assembly' | 'activeDocument'
-  const [selectedCategory, setSelectedCategory] = useState(null); // 'device' | 'hydro' | 'mount' | 'energy'
+  const hasAssembly = Boolean(compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0);
+  const hasOpenTabs = Boolean(openTabsParts && Object.keys(openTabsParts).length > 0);
+
+  const [scope, setScope] = useState(hasAssembly ? 'assembly' : (hasOpenTabs ? 'openTabs' : 'activeDocument'));
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [selectedItemData, setSelectedItemData] = useState(null);
   const [inspectorHeight, setInspectorHeight] = useState(260);
@@ -56,13 +62,40 @@ export function MechanicalWorkspace({
     if (scope === 'assembly' && compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0) {
       return compositeVehicleParts;
     }
+    if (scope === 'openTabs' && openTabsParts && Object.keys(openTabsParts).length > 0) {
+      return openTabsParts;
+    }
     return jbeamParts || {};
-  }, [scope, compositeVehicleParts, jbeamParts]);
+  }, [scope, compositeVehicleParts, openTabsParts, jbeamParts]);
 
   // Extract full mechanical overview
   const overview = useMemo(() => {
     return extractMechanicalOverview(targetParts, activePartName);
   }, [targetParts, activePartName]);
+
+  const handleHoverItem = useCallback((category, item) => {
+    if (!onHoverElement) return;
+    if (!category || !item) {
+      onHoverElement(null);
+      return;
+    }
+    if (category === 'hydro' || category === 'mount' || (category === 'suspension' && item.id1 && item.id2 && item.kind !== 'torsionbar' && item.kind !== 'rail')) {
+      onHoverElement({
+        type: 'beam',
+        id1: item.id1,
+        id2: item.id2,
+        partName: item.partName
+      });
+    } else if (item.boundNodes && item.boundNodes.length > 0) {
+      onHoverElement({
+        nodes: item.boundNodes.map(id => ({ type: 'node', id, partName: item.partName }))
+      });
+    } else if (item.id1) {
+      onHoverElement({ type: 'node', id: item.id1, partName: item.partName });
+    } else {
+      onHoverElement(null);
+    }
+  }, [onHoverElement]);
 
   const handleSelectItem = useCallback((category, id, data) => {
     setSelectedCategory(category);
@@ -72,7 +105,6 @@ export function MechanicalWorkspace({
     const targetPart = data?.partName || activePartName;
     const resolvedFilePath = data?.filePath || (workspaceIndex?.partsMap?.[targetPart]?.filePath) || (compositeVehicleParts?.[targetPart]?.__filePath);
 
-    // Auto-correlate 3D elements if applicable
     if (category === 'device') {
       if (data?.boundMeshes && data.boundMeshes.length > 0 && onSelectSubmesh) {
         onSelectSubmesh(data.boundMeshes[0]);
@@ -87,13 +119,13 @@ export function MechanicalWorkspace({
           item: data
         });
       }
-    } else if (category === 'hydro' || category === 'mount') {
+    } else if (category === 'hydro' || category === 'mount' || category === 'suspension' || category === 'brakes') {
       if (data?.id1 && onFocusNodeIn3D) {
         onFocusNodeIn3D(data.id1, {
           partName: targetPart,
           filePath: resolvedFilePath,
           otherNodeId: data.id2,
-          allBoundNodes: [data.id1, data.id2].filter(Boolean),
+          allBoundNodes: data.boundNodes || [data.id1, data.id2].filter(Boolean),
           category,
           item: data
         });
@@ -127,38 +159,42 @@ export function MechanicalWorkspace({
           item
         });
       }
-    } else if (category === 'hydro' || category === 'mount') {
-      if (item.id1 && onFocusNodeIn3D) {
-        onFocusNodeIn3D(item.id1, {
-          partName: targetPart,
-          filePath: resolvedFilePath,
-          otherNodeId: item.id2,
-          allBoundNodes: [item.id1, item.id2].filter(Boolean),
-          category,
-          item
-        });
-      }
-    } else if (category === 'energy') {
-      if (item.boundNodes && item.boundNodes.length > 0 && onFocusNodeIn3D) {
-        onFocusNodeIn3D(item.boundNodes[0], {
-          partName: targetPart,
-          filePath: resolvedFilePath,
-          allBoundNodes: item.boundNodes,
-          category,
-          item
-        });
-      }
+    } else if (item.id1 && onFocusNodeIn3D) {
+      onFocusNodeIn3D(item.id1, {
+        partName: targetPart,
+        filePath: resolvedFilePath,
+        otherNodeId: item.id2,
+        allBoundNodes: item.boundNodes || [item.id1, item.id2].filter(Boolean),
+        category,
+        item
+      });
     }
   }, [onFocusNodeIn3D, onSelectSubmesh, activePartName, workspaceIndex, compositeVehicleParts]);
 
   const handleJumpToCode = useCallback((category, item) => {
     if (!item || !onNavigateToElement) return;
-    const targetName = category === 'device' ? item.name : (category === 'hydro' ? (item.beamName || item.id1) : (item.breakGroup || item.id1));
+    const targetName =
+      category === 'device' ? item.name :
+      category === 'hydro' ? (item.beamName || item.id1) :
+      category === 'variable' ? item.name :
+      category === 'brakes' ? item.name :
+      (item.breakGroup || item.id1 || item.name);
+
+    const typeMap = {
+      device: 'powertrain',
+      hydro: 'hydros',
+      mount: 'beams',
+      suspension: item.kind === 'torsionbar' ? 'torsionbars' : (item.kind === 'rail' ? 'rails' : (item.kind === 'slidenode' ? 'slidenodes' : 'beams')),
+      brakes: 'pressureWheels',
+      energy: 'energyStorage',
+      variable: 'variables'
+    };
+
     const targetPart = item.partName || activePartName;
     const resolvedFilePath = item.filePath || (workspaceIndex?.partsMap?.[targetPart]?.filePath) || (compositeVehicleParts?.[targetPart]?.__filePath);
     onNavigateToElement({
       name: targetName,
-      type: category === 'device' ? 'powertrain' : (category === 'hydro' ? 'hydros' : 'beams'),
+      type: typeMap[category] || 'beams',
       partName: targetPart,
       filePath: resolvedFilePath,
       boundNodes: item.boundNodes,
@@ -176,9 +212,10 @@ export function MechanicalWorkspace({
         onSelectItem={handleSelectItem}
         scope={scope}
         onChangeScope={setScope}
-        hasAssembly={Boolean(compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0)}
+        hasAssembly={hasAssembly}
+        hasOpenTabs={hasOpenTabs}
         onFocus3D={handleFocus3D}
-        activeDocumentName={activePartName}
+        onHoverItem={handleHoverItem}
       />
 
       {/* Resizer Splitter between Tree and Inspector */}
@@ -201,6 +238,7 @@ export function MechanicalWorkspace({
           onFocus3D={handleFocus3D}
           onJumpToCode={handleJumpToCode}
           onIsolateMesh={onIsolateMesh}
+          onUpdateBeamProperties={onUpdateBeamProperties}
           onDeselect={() => {
             setSelectedItemId(null);
             setSelectedCategory(null);

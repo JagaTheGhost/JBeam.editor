@@ -6,6 +6,7 @@ import {
   deriveMultiMeshPartName,
   generateMultiMeshJBeam
 } from '../src/features/meshes/meshJBeamGenerator.js';
+import { buildSubmeshPrefixTree } from '../src/features/meshes/submeshTreeUtils.js';
 
 const TEST_DAE_XML = `<?xml version="1.0" encoding="utf-8"?>
 <COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
@@ -261,6 +262,40 @@ export function runDaeMeshPanelTests() {
   }
   assert.strictEqual(autoLoaded, false, 'Auto-load must NOT trigger when selectedDae is __none__');
   console.log('✓ Test 8: Explicit "No Visual Mesh" (__none__) unloads 3D models and suppresses auto-reload.');
+
+  // Test 9: Multi-level underscore prefix tree grouping & path compression
+  const tree = buildSubmeshPrefixTree([
+    'bastion_antenna_trunk',
+    'bastion_adcarrier',
+    'bastion_lettering_35luxe_awd',
+    'bastion_lettering_redtail',
+    'bastion_badge_pillar_redtail',
+    'bastion_badge_pillar_battlehawk',
+    'bastion_badge_hood'
+  ], {
+    bastion_antenna_trunk: { triangles: 142 },
+    bastion_adcarrier: { triangles: 510 },
+    bastion_lettering_35luxe_awd: { triangles: 14 },
+    bastion_lettering_redtail: { triangles: 12 },
+    bastion_badge_pillar_redtail: { triangles: 16 },
+    bastion_badge_pillar_battlehawk: { triangles: 16 },
+    bastion_badge_hood: { triangles: 20 }
+  });
+
+  assert.strictEqual(tree.rootPrefix, 'bastion', 'Shared root prefix must be unwrapped');
+  const adcarrier = tree.nodes.find(n => n.type === 'leaf' && n.name === 'bastion_adcarrier');
+  const antenna = tree.nodes.find(n => n.type === 'leaf' && n.name === 'bastion_antenna_trunk');
+  assert.ok(adcarrier && antenna, 'Single-item meshes must remain flat leaves without redundant 1-item folders');
+  assert.strictEqual(antenna.label, 'antenna_trunk');
+
+  const lettering = tree.nodes.find(n => n.type === 'folder' && n.label === 'lettering');
+  assert.ok(lettering && lettering.meshCount === 2 && lettering.totalTriangles === 26, 'Lettering folder must group 2 meshes and sum triangles');
+
+  const badge = tree.nodes.find(n => n.type === 'folder' && n.label === 'badge');
+  assert.ok(badge && badge.meshCount === 3, 'Badge folder must contain hood + pillar subfolder');
+  const pillar = badge.children.find(c => c.type === 'folder' && c.label === 'pillar');
+  assert.ok(pillar && pillar.meshCount === 2, 'Nested pillar level must group redtail and battlehawk');
+  console.log('✓ Test 9: Multi-level underscore prefix tree grouping & path compression verified.');
 }
 
 if (process.argv[1]?.endsWith('daeMeshPanel.test.js')) {

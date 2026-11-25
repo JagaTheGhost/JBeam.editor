@@ -5,8 +5,8 @@
 
 :root {
   /* BeamNG Core Color Tokens */
-  --bng-orange: #FF6600;
-  --bng-orange-hover: #FF8533;
+  --bng-orange: #0099FF;
+  --bng-orange-hover: #33ADFF;
   --bng-deep-charcoal: #1A1A1A;
   --bng-surface-gray: #262626;
   --bng-gunmetal: #3D3D3D;
@@ -23,7 +23,7 @@
   --bg-panel-alt: #262626;
   --bg-toolbar: #181818;
   --border-color: #3D3D3D;
-  --border-active: #FF6600;
+  --border-active: #0099FF;
 
   --text-main: #FFFFFF;
   --text-muted: #B3B3B3;
@@ -69,7 +69,7 @@ body {
 }
 
 .brand-ext {
-  color: var(--bng-orange, #FF6600) !important;
+  color: var(--bng-orange, #0099FF) !important;
   font-weight: 700;
   margin-left: 0.5px;
 }
@@ -110,10 +110,10 @@ body {
   font-size: 11px;
   font-weight: 600;
   color: var(--bng-orange);
-  background: rgba(255, 102, 0, 0.12);
+  background: rgba(0, 153, 255, 0.12);
   padding: 1px 6px;
   border-radius: 3px;
-  border: 1px solid rgba(255, 102, 0, 0.25);
+  border: 1px solid rgba(0, 153, 255, 0.25);
 }
 
 .titlebar-controls {

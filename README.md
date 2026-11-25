@@ -2,75 +2,51 @@
 
 **A Hybrid 3D & Source Development Environment for BeamNG.drive Vehicle Creators**
 
-[![GitHub Release](https://img.shields.io/github/v/release/JagaTheGhost/JBeam.editor?color=FF6600&label=Release)](https://github.com/JagaTheGhost/JBeam.editor/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/JagaTheGhost/JBeam.editor?color=0099FF&label=Release)](https://github.com/JagaTheGhost/JBeam.editor/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 
-JBeam.editor is a dedicated desktop application engineered for BeamNG.drive modders, vehicle designers, and physics engineers. It combines a full-featured source code editor (Monaco Editor) with real-time 3D WebGL physics structure visualization and lossless bidirectional AST synchronization.
+**JBeam.editor** is a dedicated desktop IDE engineered for BeamNG.drive modders, vehicle designers, and physics engineers. It pairs a **Monaco Source Code Editor** with a real-time **Three.js / WebGL 3D Physics Viewport**, **lossless bidirectional AST synchronization**, multi-part vehicle assembly, Collada (`.dae`) mesh integration, and deep BeamNG physics diagnostics.
+
+> **Core Guarantee — Lossless Editing:** Unlike external 3D exporters that rewrite files and strip comments, JBeam.editor mutates only the exact AST ranges you change, preserving 100% of your `//` & `/* ... */` comments, indentation, formatting, and table headers.
 
 ---
 
-## ✨ Key Features
+## ✨ Key Capabilities
 
-- **Hybrid Development Environment**:
-  - **Split View**: Work on source code and interact with the 3D vehicle structure simultaneously.
-  - **Code Focus**: Expand the editor for concentrated source authoring.
-  - **3D Focus**: Maximize the 3D viewport for structural inspection.
-  - **Detached Viewport (Multi-Monitor Popout)**: Pop out the 3D viewport into an independent secondary window across dual displays with live real-time sync.
-- **JBeam Source Code Editor**:
-  - Custom Monaco Monarch grammar for BeamNG JBeam keywords and tokens.
-  - Rainbow bracket colorization, line numbers, code folding, and find/replace.
-  - Preserves 100% of indentation, spacing, and comments (`//` and `/* ... */`).
-- **3D Structure Viewport (WebGL / Three.js)**:
-  - Renders **Nodes** as interactive 3D spheres with optional **Floating Billboard Labels**.
-  - Renders **Beams** color-coded by official BeamNG type (`NORMAL`, `HYDRO`, `SUPPORT`, `BOUNDED`, `ANISOTROPIC`, `LBEAM`).
-  - Renders **Triangles & Quads** as translucent aerodynamic and collision surfaces.
-  - **Blender-Style Orientation Gizmo**: Interactive 3D coordinate cube in the top-right corner to snap into Front, Rear, Left, Right, Top, or Bottom orthographic views.
-  - **Connected Topology Focus (Neighborhood X-Ray) `[EXPERIMENTAL]`**: Isolate directly connected beams and adjacent neighbor nodes with <kbd>Alt + F</kbd>, automatically dimming background geometry and decluttering labels.
-  - **Viewport Background Themes**: Switch between *Editor Gray* (`#1e2127`), *Theme Charcoal* (`#1a1a1a`), *CAD Slate* (`#282c34`), and *Pitch Black* (`#0d0e11`) with neutral ground grid.
-  - Ground grid with vehicle-aligned coordinate axes (**X**: Lateral, **Y**: Longitudinal, **Z**: Vertical).
-- **Two-Way AST Synchronization & Symmetry**:
-  - **Code to Viewport**: Editing source code instantly parses and updates the 3D structural model.
-  - **Viewport to Code**: Select a node in 3D and drag its translation gizmo; exact coordinates are updated in the document AST without altering comments.
-  - **Left/Right Symmetry Engine**: Automatically detects and mirrors coordinate changes across symmetrical node pairs (`fr1r` ↔ `fr1l`).
-  - **PCA Symmetry Plane Detection `[EXPERIMENTAL]`**: Computes Principal Component Analysis across coordinates to detect true mirror planes.
-- **Gizmos & Multi-Node Cluster Manipulation**:
-  - Hold <kbd>Shift</kbd> to select multiple nodes.
-  - Unified centroid gizmo allows moving multi-node clusters while preserving relative distances.
-  - <kbd>Alt + G</kbd> resets gizmo offsets.
-- **Multi-Part Vehicle Assembly & Slot Manager**:
-  - Automatically indexes all `.jbeam` parts and `.pc` vehicle configurations across any vehicle mod folder.
-  - **Hierarchical Slot Tree**: Visualizes nested slots (`slots` / `slots2` and `slotType`).
-  - **Variant Configuration (.pc) Loader**: Select any `.pc` configuration from a dropdown to assemble all matching parts into a unified composite vehicle.
-  - **Interactive Part Swapping**: Dropdown selectors for every slot allow modders to swap parts.
-  - **Independent Part Visibility Toggles**: Eye icon `👁️` toggles show/hide for individual parts in 3D.
-  - **Composite 3D Visualization & Distinct Part Coloring**: Color-codes each assembly part with its own distinct palette color.
-- **Dedicated 3D Meshes (.DAE) Panel & Multi-Spawn**:
-  - Submesh explorer with individual checkboxes to spawn multiple Collada meshes simultaneously (`hood`, `doors`, `chassis`).
-  - 1-click JBeam part generation from spawned 3D meshes with auto-generated flexbody bindings.
-  - Fully integrated into both the main window and detached multi-monitor viewport.
-- **Mechanical Workspace & Dyno Studio `[EXPERIMENTAL]`**:
-  - Live Dyno & Torque / Horsepower curves with interactive RPM scrubbing and transmission gear speed calculation.
-  - Gearing & Sawtooth ratio simulator with tire radius calibration.
-  - Ackermann steering kinematics simulator visualizing lock-to-lock steering angle divergence.
-  - Powertrain device architecture inspector with **Focus 3D** camera centering and **Jump to Code** Monaco editor navigation.
-- **Live Simulation Connection (SimConnection)**:
-  - Real-time socket bridge with BeamNG.drive physics engine.
-  - Mirrors live node deformation and stress states directly from the game.
-  - Instant vehicle reload (<kbd>Ctrl + R</kbd>).
-- **Multi-Layer Validation & Diagnostics**:
-  - Identifies SJSON syntax errors, missing node references in beams, duplicate node IDs, invalid non-numeric coordinates, and degenerate triangles.
-  - Bottom Problems panel allows one-click jumping to the exact line in source code.
-- **Installer & Auto-Updates**:
-  - Custom Web Bootstrapper with BeamNG Steam and userfolder auto-detection.
-  - In-app update notification banner linked to GitHub Releases.
+- **Hybrid Workspace & Multi-Monitor Popout**: Split View, Code Focus, 3D Focus, and a **Detached Viewport** window for dual-monitor setups with live sync.
+- **File Explorer & Monaco JBeam Editor**:
+  - Hierarchical file tree with vertical indent guides, quick filter, `Pin` stay-in-files mode, `+` background tab open, and distinct extension badges (`.jbeam`, `.dae`, `.pc`, `.json`, `.html`, `.lua`, textures).
+  - Custom JBeam Monarch grammar, rainbow brackets, inline hover documentation, `F2` cascading node rename (with `X-Mirror` symmetry), and batch node renaming.
+  - App-wide dark custom tooltips with zero duplicate OS popups.
+- **3D Viewport Sources (`Part` · `Multi-Part` · `Assembly`)**:
+  - **Part Mode**: Inspect and edit the active `.jbeam` file.
+  - **Multi-Part Mode**: View all open tabs together, grouped by file in `View Modes`, with `CAD Wire`, `Joints`, `Cross` (cross-part beams), `Auto-Mount`, and **Clash Inspector** for overlapping nodes.
+  - **Assembly Mode**: Index an entire vehicle mod folder, load `.pc` configurations, swap `slots` / `slots2` parts, and toggle part visibility.
+- **View Modes Floating HUD (`Parts` · `Type` · `Crash` · `Heat`)**:
+  - **Parts**: 3-level Component Family & Collada `.dae` submesh hierarchy with solo (`S`), visibility (`👁️`), and `Hide All` / `Expand`.
+  - **Type**: Filter/color nodes, beams, and surfaces by official BeamNG physics type (`NORMAL`, `HYDRO`, `SUPPORT`, `BOUNDED`, `ANISOTROPIC`, `LBEAM`, `PRESSURE`, etc.).
+  - **Crash**: Visualize `breakGroup` and `deformGroup` zones with soloing.
+  - **Heat**: `beamStrength` yield heatmap (`min` / `mid` / `max` / `FLT_MAX`).
+- **3D Modeling, Symmetry & Utilities**:
+  - Interactive Left Tool Shelf: Select (`V`), Box Select (`B`), Add Node, Add Beam, Add Triangle, Add Quad, Batch Rename, Delete, plus `X-Mirror` Symmetry, **Connected Topology Focus** (`Alt+F`), Face Orientation & Flip Normal, **Blueprint Overlays**, and **Wavefront OBJ ↔ JBeam Converter**.
+- **Physics Diagnostics (`Physics` Menu)**:
+  - **PressureWheels Skeleton** + nested **Ghost Wheels & Tires** (lathed tire carcass, stepped rim, auto-adapting Car 6-spoke + brake rotor vs. Truck 10-lug deep-dish, multi-axle & dually `disable`/expression support, `slots2` `nodeOffset` alignment).
+  - **Torsion Bars / Swaybars**, **Rails & SlideNodes**, **Center of Gravity (CoG)**, **Aerodynamics & CoP** + **Surface Flow Vectors**, **Frame Triad (`refNodes`)**, and **Cockpit Cameras (`camerasInternal`)**.
+- **Inspector, Structure Tree & Multi-Layer Diagnostics**:
+  - **Element Inspector** with property editing & Jump-to-Code; **Structure Tree** with single-click expand/collapse and 3D hover isolation/dimming.
+  - **Problems Panel** with clickable `Errors` / `Warnings` / `Notices` severity filters and **BeamNG Game Log** parser.
+  - **Live SimConnection**: Socket bridge to BeamNG.drive with real-time deformation mirroring and `Ctrl+R` instant vehicle reload.
 
 ---
 
-## 📖 Documentation
+## 📖 Documentation & GitHub Wiki
 
-The complete reference manual and feature breakdown is available:
-* **Interactive HTML Guide**: [`docs/index.html`](docs/index.html)
-* **Markdown Manual**: [`docs/README.md`](docs/README.md)
+- **GitHub Wiki (Full Feature Reference)**: [`wiki/Home.md`](wiki/Home.md)
+  - [Getting Started](wiki/Getting-Started.md) · [File Explorer & Code Editor](wiki/File-Explorer-and-Code-Editor.md) · [3D Viewport & View Modes](wiki/3D-Viewport-and-View-Modes.md)
+  - [3D Modeling & Selection Tools](wiki/3D-Modeling-and-Selection-Tools.md) · [Physics Diagnostics & Wheels](wiki/Physics-Diagnostics-and-Wheels.md) · [Inspector, Structure & Diagnostics](wiki/Inspector-Structure-and-Diagnostics.md)
+  - [Keyboard Shortcuts](wiki/Keyboard-Shortcuts.md) · [Screenshots Checklist](wiki/Screenshots-Checklist.md)
+- **Interactive HTML Manual**: [`docs/index.html`](docs/index.html)
+- **Markdown Reference**: [`docs/README.md`](docs/README.md)
 
 ---
 
@@ -82,16 +58,20 @@ The complete reference manual and feature breakdown is available:
 git clone https://github.com/JagaTheGhost/JBeam.editor.git
 cd JBeam.editor
 
-# Install app dependencies
+# Install dependencies and launch
 cd jbeam-studio
 npm install
-
-# Run JBeam.editor in development mode
 npm start
 ```
 
-### Running the Custom Installer
-From the project root:
+### Running Tests & Production Build
+```bash
+npm test --prefix jbeam-studio
+npm run build --prefix jbeam-studio
+```
+
+### Custom Installer
+From the repository root:
 ```bat
 launch-installer.bat
 ```
@@ -100,4 +80,4 @@ launch-installer.bat
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

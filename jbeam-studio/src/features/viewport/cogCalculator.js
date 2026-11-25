@@ -275,7 +275,7 @@ export function buildCogMarkerGroup(massProps, visible = false) {
 
       // Card Subtle Accent Border
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 102, 0, 0.55)';
+      ctx.strokeStyle = 'rgba(0, 153, 255, 0.65)';
       ctx.lineWidth = 2;
       ctx.roundRect(6, 6, 588, 168, 16);
       ctx.stroke();
@@ -290,14 +290,14 @@ export function buildCogMarkerGroup(massProps, visible = false) {
       ctx.moveTo(symX, symY);
       ctx.arc(symX, symY, symR, Math.PI, 1.5 * Math.PI);
       ctx.closePath();
-      ctx.fillStyle = '#ff6600';
+      ctx.fillStyle = '#0099FF';
       ctx.fill();
 
       ctx.beginPath();
       ctx.moveTo(symX, symY);
       ctx.arc(symX, symY, symR, 0, 0.5 * Math.PI);
       ctx.closePath();
-      ctx.fillStyle = '#ff6600';
+      ctx.fillStyle = '#0099FF';
       ctx.fill();
 
       ctx.beginPath();
@@ -322,7 +322,7 @@ export function buildCogMarkerGroup(massProps, visible = false) {
       ctx.closePath();
 
       // Line 1: Header & Mass Telemetry
-      ctx.fillStyle = '#ff8533';
+      ctx.fillStyle = '#33ADFF';
       ctx.font = 'bold 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText('CENTER OF GRAVITY', 62, 32);
@@ -366,7 +366,7 @@ export function buildCogMarkerGroup(massProps, visible = false) {
       ctx.closePath();
 
       ctx.beginPath();
-      ctx.fillStyle = '#ff6600';
+      ctx.fillStyle = '#0099FF';
       ctx.roundRect(barX + frontW, barY, barW - frontW, barH, [0, 5, 5, 0]);
       ctx.fill();
       ctx.closePath();
@@ -402,7 +402,7 @@ export function buildCogMarkerGroup(massProps, visible = false) {
       ctx.fillText(`CoG Pos: [X: ${beamngX.toFixed(2)}m, Y: ${beamngY.toFixed(2)}m, Z: ${beamngZ.toFixed(2)}m]`, 24, 148);
 
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#ff8533';
+      ctx.fillStyle = '#33ADFF';
       ctx.fillText(`Height (Z): ${beamngZ.toFixed(2)}m`, 576, 148);
 
       const texture = new THREE.CanvasTexture(canvas);

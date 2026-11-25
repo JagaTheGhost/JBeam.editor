@@ -290,9 +290,9 @@ export function AssemblyManager({
                   borderRadius: '3px',
                   cursor: 'pointer',
                   border: '1px solid',
-                  background: viewportSource === 'assembly' ? 'rgba(255, 102, 0, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                  borderColor: viewportSource === 'assembly' ? 'var(--accent-color, #ff6600)' : 'rgba(255, 255, 255, 0.1)',
-                  color: viewportSource === 'assembly' ? '#ff9933' : '#aaa'
+                  background: viewportSource === 'assembly' ? 'rgba(0, 153, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                  borderColor: viewportSource === 'assembly' ? 'var(--accent-color, #0099FF)' : 'rgba(255, 255, 255, 0.1)',
+                  color: viewportSource === 'assembly' ? '#33ADFF' : '#aaa'
                 }}
                 onClick={() => onChangeViewportSource(viewportSource === 'assembly' ? 'activeDocument' : 'assembly')}
                 title={viewportSource === 'assembly' ? '3D Viewport is displaying full vehicle assembly' : 'Click to show assembled vehicle in 3D Viewport'}

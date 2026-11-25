@@ -10,7 +10,7 @@ import {
 function getFileType(filename = '') {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.jbeam')) {
-    return { type: 'jbeam', label: 'JBeam', color: '#ff6600' };
+    return { type: 'jbeam', label: 'JBeam', color: '#0099FF' };
   }
   if (lower.endsWith('.pc')) {
     return { type: 'pc', label: 'PC Config', color: '#38bdf8' };

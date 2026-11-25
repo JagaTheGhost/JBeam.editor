@@ -1,7 +1,8 @@
 /**
  * JBeam Studio - Mechanical System Tree
  * Displays the hierarchical topology of powertrain devices, steering hydros,
- * engine mounts, and energy storage with search and scope switching.
+ * suspension kinematics, brakes/wheels, engine mounts, energy storage, and variables
+ * with search, scope switching, and live 3D hover highlighting.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -13,13 +14,13 @@ import {
   CouplingIcon,
   TurboIcon,
   SearchIcon,
-  CheckIcon,
-  WarningIcon,
   LayersIcon,
   ChevronRightIcon,
   ChevronDownIcon,
-  EyeIcon,
-  FocusIcon
+  FocusIcon,
+  WheelIcon,
+  SlidersIcon,
+  CloseIcon
 } from '../../components/Icons.jsx';
 
 function getCategoryIcon(category, size = 14) {
@@ -42,20 +43,26 @@ function getCategoryIcon(category, size = 14) {
 export function MechanicalTree({
   overview,
   selectedItemId,
-  selectedCategory, // 'device' | 'hydro' | 'mount' | 'energy'
+  selectedCategory, // 'device' | 'hydro' | 'suspension' | 'brakes' | 'mount' | 'energy' | 'variable'
   onSelectItem,
-  scope, // 'assembly' | 'activeDocument'
+  scope, // 'assembly' | 'openTabs' | 'activeDocument'
   onChangeScope,
   hasAssembly = false,
+  hasOpenTabs = false,
   onFocus3D = null,
-  activeDocumentName = ''
+  onHoverItem = null
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [axleFilter, setAxleFilter] = useState('all'); // 'all' | 'front' | 'rear'
   const [expandedSections, setExpandedSections] = useState({
     powertrain: true,
     hydros: true,
+    suspension: true,
+    brakes: true,
     mounts: true,
-    energy: true
+    energy: false,
+    variables: false,
+    aniso: false
   });
 
   const toggleSection = (sectionKey) => {
@@ -65,62 +72,132 @@ export function MechanicalTree({
     }));
   };
 
+  const setAllExpanded = (expanded) => {
+    setExpandedSections({
+      powertrain: expanded,
+      hydros: expanded,
+      suspension: expanded,
+      brakes: expanded,
+      mounts: expanded,
+      energy: expanded,
+      variables: expanded,
+      aniso: expanded
+    });
+  };
+
+  const q = searchQuery.trim().toLowerCase();
+
   const filteredDevices = useMemo(() => {
-    if (!overview?.devicesList) return [];
-    if (!searchQuery.trim()) return overview.devicesList;
-    const q = searchQuery.toLowerCase();
-    return overview.devicesList.filter(d =>
+    const list = overview?.devicesList || [];
+    if (!q) return list;
+    return list.filter(d =>
       d.name.toLowerCase().includes(q) ||
       d.type.toLowerCase().includes(q) ||
       d.category.toLowerCase().includes(q)
     );
-  }, [overview, searchQuery]);
+  }, [overview, q]);
 
   const filteredHydros = useMemo(() => {
-    if (!overview?.hydrosList) return [];
-    if (!searchQuery.trim()) return overview.hydrosList;
-    const q = searchQuery.toLowerCase();
-    return overview.hydrosList.filter(h =>
+    const list = overview?.hydrosList || [];
+    if (!q) return list;
+    return list.filter(h =>
       h.beamName.toLowerCase().includes(q) ||
       h.id1.toLowerCase().includes(q) ||
       h.id2.toLowerCase().includes(q)
     );
-  }, [overview, searchQuery]);
+  }, [overview, q]);
+
+  const filteredSuspension = useMemo(() => {
+    let list = overview?.suspensionList || [];
+    if (axleFilter !== 'all') {
+      list = list.filter(s => s.axle === axleFilter);
+    }
+    if (!q) return list;
+    return list.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      s.subType.toLowerCase().includes(q) ||
+      (s.id1 && s.id1.toLowerCase().includes(q)) ||
+      (s.id2 && s.id2.toLowerCase().includes(q))
+    );
+  }, [overview, q, axleFilter]);
+
+  const filteredAniso = useMemo(() => {
+    const list = overview?.anisoBeamsList || [];
+    if (!q) return list;
+    return list.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.id1 && s.id1.toLowerCase().includes(q)) ||
+      (s.id2 && s.id2.toLowerCase().includes(q))
+    );
+  }, [overview, q]);
+
+  const filteredBrakes = useMemo(() => {
+    const list = overview?.brakesList || [];
+    if (!q) return list;
+    return list.filter(b =>
+      b.name.toLowerCase().includes(q) ||
+      (b.partName && b.partName.toLowerCase().includes(q))
+    );
+  }, [overview, q]);
 
   const filteredMounts = useMemo(() => {
-    if (!overview?.mountsList) return [];
-    if (!searchQuery.trim()) return overview.mountsList;
-    const q = searchQuery.toLowerCase();
-    return overview.mountsList.filter(m =>
+    const list = overview?.mountsList || [];
+    if (!q) return list;
+    return list.filter(m =>
       (m.breakGroup && m.breakGroup.toLowerCase().includes(q)) ||
+      (m.engineGroup && m.engineGroup.toLowerCase().includes(q)) ||
       m.id1.toLowerCase().includes(q) ||
       m.id2.toLowerCase().includes(q)
     );
-  }, [overview, searchQuery]);
+  }, [overview, q]);
 
   const filteredEnergy = useMemo(() => {
-    if (!overview?.energyList) return [];
-    if (!searchQuery.trim()) return overview.energyList;
-    const q = searchQuery.toLowerCase();
-    return overview.energyList.filter(e =>
+    const list = overview?.energyList || [];
+    if (!q) return list;
+    return list.filter(e =>
       e.name.toLowerCase().includes(q) ||
       e.type.toLowerCase().includes(q)
     );
-  }, [overview, searchQuery]);
+  }, [overview, q]);
+
+  const filteredVariables = useMemo(() => {
+    const list = overview?.variablesList || [];
+    if (!q) return list;
+    return list.filter(v =>
+      v.name.toLowerCase().includes(q) ||
+      v.title.toLowerCase().includes(q) ||
+      v.category.toLowerCase().includes(q)
+    );
+  }, [overview, q]);
+
+  const emitHover = (cat, item) => {
+    if (onHoverItem) onHoverItem(cat, item);
+  };
 
   return (
-    <div className="mechanical-tree-container">
+    <div
+      className="mechanical-tree-container"
+      onMouseLeave={() => emitHover(null, null)}
+    >
       {/* Scope Switcher Banner */}
       <div className="mechanical-scope-bar">
-        <span className="scope-label">Scope:</span>
         <button
           type="button"
           className={`scope-pill ${scope === 'assembly' ? 'active' : ''}`}
           onClick={() => onChangeScope && onChangeScope('assembly')}
           disabled={!hasAssembly}
-          title={hasAssembly ? 'Analyze whole assembled vehicle' : 'No assembled vehicle loaded'}
+          title={hasAssembly ? 'Analyze whole assembled vehicle' : 'Open a folder / .pc assembly first'}
         >
-          <span>Assembled Vehicle</span>
+          <span>Assembled</span>
+        </button>
+        <button
+          type="button"
+          className={`scope-pill ${scope === 'openTabs' ? 'active' : ''}`}
+          onClick={() => onChangeScope && onChangeScope('openTabs')}
+          disabled={!hasOpenTabs}
+          title={hasOpenTabs ? 'Analyze all currently open JBeam tabs' : 'Open multiple tabs to combine'}
+        >
+          <span>Open Tabs</span>
         </button>
         <button
           type="button"
@@ -136,11 +213,27 @@ export function MechanicalTree({
       <div className="mechanical-header-card">
         <div className="drivetrain-title-row">
           <span className="layout-badge">
-            Layout: <strong>{overview?.drivetrainLayout || 'Custom'}</strong>
+            Layout: <strong>{overview?.drivetrainLayout || 'None'}</strong>
           </span>
-          <span className="count-badge">
-            {overview?.totalDevices || 0} Devices
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span className="count-badge">{overview?.totalDevices || 0} Dev</span>
+            <button
+              type="button"
+              className="structure-mini-btn"
+              onClick={() => setAllExpanded(true)}
+              title="Expand all mechanical sections"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="structure-mini-btn"
+              onClick={() => setAllExpanded(false)}
+              title="Collapse all mechanical sections"
+            >
+              −
+            </button>
+          </div>
         </div>
       </div>
 
@@ -149,7 +242,7 @@ export function MechanicalTree({
         <SearchIcon size={13} className="search-icon-muted" />
         <input
           type="text"
-          placeholder="Filter devices, hydros, mounts..."
+          placeholder="Filter engine, hydros, shocks, brakes, $vars..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="mechanical-search-input"
@@ -159,8 +252,9 @@ export function MechanicalTree({
             type="button"
             className="search-clear-btn"
             onClick={() => setSearchQuery('')}
+            title="Clear filter"
           >
-            ×
+            <CloseIcon size={10} />
           </button>
         )}
       </div>
@@ -169,18 +263,15 @@ export function MechanicalTree({
       <div className="mechanical-tree-scroll">
         {/* Section 1: Powertrain Devices */}
         <div className="tree-section">
-          <div
-            className="tree-section-header"
-            onClick={() => toggleSection('powertrain')}
-          >
+          <div className="tree-section-header" onClick={() => toggleSection('powertrain')}>
             <span className="section-chevron">
-              {expandedSections.powertrain ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+              {(q || expandedSections.powertrain) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
             </span>
             <span className="section-title">Powertrain & Drivetrain</span>
             <span className="section-counter">{filteredDevices.length}</span>
           </div>
 
-          {expandedSections.powertrain && (
+          {(q || expandedSections.powertrain) && (
             <div className="tree-items-list">
               {filteredDevices.length === 0 ? (
                 <div className="tree-empty-hint">No powertrain devices found in this scope.</div>
@@ -191,6 +282,8 @@ export function MechanicalTree({
                     <div
                       key={dev.name}
                       className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('device', dev)}
+                      onMouseLeave={() => emitHover(null, null)}
                       onClick={() => onSelectItem && onSelectItem('device', dev.name, dev)}
                     >
                       <span className="item-icon-wrapper" data-category={dev.category}>
@@ -230,18 +323,15 @@ export function MechanicalTree({
 
         {/* Section 2: Hydros & Steering */}
         <div className="tree-section">
-          <div
-            className="tree-section-header"
-            onClick={() => toggleSection('hydros')}
-          >
+          <div className="tree-section-header" onClick={() => toggleSection('hydros')}>
             <span className="section-chevron">
-              {expandedSections.hydros ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+              {(q || expandedSections.hydros) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
             </span>
             <span className="section-title">Hydros & Steering</span>
             <span className="section-counter">{filteredHydros.length}</span>
           </div>
 
-          {expandedSections.hydros && (
+          {(q || expandedSections.hydros) && (
             <div className="tree-items-list">
               {filteredHydros.length === 0 ? (
                 <div className="tree-empty-hint">No hydro actuators or steering racks declared.</div>
@@ -253,15 +343,17 @@ export function MechanicalTree({
                     <div
                       key={hydroKey}
                       className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('hydro', hydro)}
+                      onMouseLeave={() => emitHover(null, null)}
                       onClick={() => onSelectItem && onSelectItem('hydro', hydroKey, hydro)}
                     >
                       <span className="item-icon-wrapper" data-category="hydro">
                         <ShaftIcon size={13} />
                       </span>
                       <div className="item-text-stack">
-                        <span className="item-primary-name">{hydro.beamName || `Hydro ${hydro.id1} → ${hydro.id2}`}</span>
+                        <span className="item-primary-name">{hydro.beamName || `Hydro ${hydro.id1} ↔ ${hydro.id2}`}</span>
                         <span className="item-sub-desc">
-                          Factor: {hydro.factor} | Rate: {hydro.inRate}m/s
+                          {hydro.id1} ↔ {hydro.id2} · Factor: {hydro.factor}
                         </span>
                       </div>
                       {onFocus3D && (
@@ -285,20 +377,147 @@ export function MechanicalTree({
           )}
         </div>
 
-        {/* Section 3: Mounts & BreakGroups */}
+        {/* Section 3: Suspension & Kinematics */}
         <div className="tree-section">
-          <div
-            className="tree-section-header"
-            onClick={() => toggleSection('mounts')}
-          >
+          <div className="tree-section-header" onClick={() => toggleSection('suspension')}>
             <span className="section-chevron">
-              {expandedSections.mounts ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+              {(q || expandedSections.suspension) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+            </span>
+            <span className="section-title">Suspension & Kinematics</span>
+            <span className="section-counter">{filteredSuspension.length}</span>
+          </div>
+
+          {(q || expandedSections.suspension) && (
+            <div className="tree-items-list">
+              {(overview?.suspensionList?.length || 0) > 0 && (
+                <div className="mech-axle-pills">
+                  {[
+                    { id: 'all', label: 'All Axles' },
+                    { id: 'front', label: 'Front' },
+                    { id: 'rear', label: 'Rear' }
+                  ].map(ax => (
+                    <button
+                      key={ax.id}
+                      type="button"
+                      className={`structure-chip-btn ${axleFilter === ax.id ? 'active' : ''}`}
+                      onClick={() => setAxleFilter(ax.id)}
+                    >
+                      {ax.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {filteredSuspension.length === 0 ? (
+                <div className="tree-empty-hint">No bounded shocks, bumpstops, torsionbars, or rails found.</div>
+              ) : (
+                filteredSuspension.slice(0, 120).map((susp, idx) => {
+                  const suspKey = `${susp.kind}_${susp.id1 || idx}_${susp.id2 || idx}_${idx}`;
+                  const isSelected = selectedCategory === 'suspension' && selectedItemId === suspKey;
+                  return (
+                    <div
+                      key={suspKey}
+                      className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('suspension', susp)}
+                      onMouseLeave={() => emitHover(null, null)}
+                      onClick={() => onSelectItem && onSelectItem('suspension', suspKey, susp)}
+                    >
+                      <span className="item-icon-wrapper" data-category="suspension">
+                        <CouplingIcon size={13} />
+                      </span>
+                      <div className="item-text-stack">
+                        <span className="item-primary-name">{susp.name}</span>
+                        <span className="item-sub-desc">
+                          {susp.subType}{susp.beamSpring ? ` · ${Math.round(susp.beamSpring / 1000)}k N/m` : ''}
+                        </span>
+                      </div>
+                      {onFocus3D && (
+                        <button
+                          type="button"
+                          className="item-hover-focus-btn"
+                          title="Focus in 3D"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onFocus3D('suspension', susp);
+                          }}
+                        >
+                          <FocusIcon size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Section 4: Brakes & Wheels */}
+        <div className="tree-section">
+          <div className="tree-section-header" onClick={() => toggleSection('brakes')}>
+            <span className="section-chevron">
+              {(q || expandedSections.brakes) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+            </span>
+            <span className="section-title">Brakes & Wheels</span>
+            <span className="section-counter">{filteredBrakes.length}</span>
+          </div>
+
+          {(q || expandedSections.brakes) && (
+            <div className="tree-items-list">
+              {filteredBrakes.length === 0 ? (
+                <div className="tree-empty-hint">No pressureWheels / brakes found in this scope.</div>
+              ) : (
+                filteredBrakes.map((brk, idx) => {
+                  const brkKey = `brake_${brk.name}_${idx}`;
+                  const isSelected = selectedCategory === 'brakes' && selectedItemId === brkKey;
+                  return (
+                    <div
+                      key={brkKey}
+                      className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('brakes', brk)}
+                      onMouseLeave={() => emitHover(null, null)}
+                      onClick={() => onSelectItem && onSelectItem('brakes', brkKey, brk)}
+                    >
+                      <span className="item-icon-wrapper" data-category="brakes">
+                        <WheelIcon size={13} />
+                      </span>
+                      <div className="item-text-stack">
+                        <span className="item-primary-name">Wheel {brk.name} ({brk.side})</span>
+                        <span className="item-sub-desc">
+                          {brk.brakeTorque > 0 ? `${brk.brakeTorque} Nm` : 'No brakeTorque'} · R: {brk.radius?.toFixed(2)}m · {brk.pressurePSI} PSI
+                        </span>
+                      </div>
+                      {onFocus3D && (
+                        <button
+                          type="button"
+                          className="item-hover-focus-btn"
+                          title="Focus wheel in 3D"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onFocus3D('brakes', brk);
+                          }}
+                        >
+                          <FocusIcon size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Section 5: Mounts & BreakGroups */}
+        <div className="tree-section">
+          <div className="tree-section-header" onClick={() => toggleSection('mounts')}>
+            <span className="section-chevron">
+              {(q || expandedSections.mounts) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
             </span>
             <span className="section-title">Engine & Trans Mounts</span>
             <span className="section-counter">{filteredMounts.length}</span>
           </div>
 
-          {expandedSections.mounts && (
+          {(q || expandedSections.mounts) && (
             <div className="tree-items-list">
               {filteredMounts.length === 0 ? (
                 <div className="tree-empty-hint">No engine/transmission mount beams found.</div>
@@ -310,6 +529,8 @@ export function MechanicalTree({
                     <div
                       key={mountKey}
                       className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('mount', mount)}
+                      onMouseLeave={() => emitHover(null, null)}
                       onClick={() => onSelectItem && onSelectItem('mount', mountKey, mount)}
                     >
                       <span className="item-icon-wrapper" data-category="mount">
@@ -320,7 +541,7 @@ export function MechanicalTree({
                           {mount.breakGroup || mount.engineGroup || 'Engine Mount'}
                         </span>
                         <span className="item-sub-desc">
-                          Nodes: {mount.id1} ↔ {mount.id2}
+                          {mount.id1} ↔ {mount.id2}{mount.beamStrength ? ` · ${Math.round(mount.beamStrength / 1000)}kN` : ''}
                         </span>
                       </div>
                       {onFocus3D && (
@@ -344,20 +565,17 @@ export function MechanicalTree({
           )}
         </div>
 
-        {/* Section 4: Energy Storage */}
+        {/* Section 6: Energy Storage */}
         <div className="tree-section">
-          <div
-            className="tree-section-header"
-            onClick={() => toggleSection('energy')}
-          >
+          <div className="tree-section-header" onClick={() => toggleSection('energy')}>
             <span className="section-chevron">
-              {expandedSections.energy ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+              {(q || expandedSections.energy) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
             </span>
             <span className="section-title">Energy Storage</span>
             <span className="section-counter">{filteredEnergy.length}</span>
           </div>
 
-          {expandedSections.energy && (
+          {(q || expandedSections.energy) && (
             <div className="tree-items-list">
               {filteredEnergy.length === 0 ? (
                 <div className="tree-empty-hint">No fuel tanks or battery packs declared.</div>
@@ -368,6 +586,8 @@ export function MechanicalTree({
                     <div
                       key={e.name}
                       className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onMouseEnter={() => emitHover('energy', e)}
+                      onMouseLeave={() => emitHover(null, null)}
                       onClick={() => onSelectItem && onSelectItem('energy', e.name, e)}
                     >
                       <span className="item-icon-wrapper" data-category="energy">
@@ -376,6 +596,47 @@ export function MechanicalTree({
                       <div className="item-text-stack">
                         <span className="item-primary-name">{e.name}</span>
                         <span className="item-sub-desc">{e.type}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Section 7: Mechanical Tunables ($Variables) */}
+        <div className="tree-section">
+          <div className="tree-section-header" onClick={() => toggleSection('variables')}>
+            <span className="section-chevron">
+              {(q || expandedSections.variables) ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+            </span>
+            <span className="section-title">Mechanical Tunables ($Vars)</span>
+            <span className="section-counter">{filteredVariables.length}</span>
+          </div>
+
+          {(q || expandedSections.variables) && (
+            <div className="tree-items-list">
+              {filteredVariables.length === 0 ? (
+                <div className="tree-empty-hint">No tuning $variables declared in this scope.</div>
+              ) : (
+                filteredVariables.map((v, idx) => {
+                  const varKey = `${v.partName}_${v.name}_${idx}`;
+                  const isSelected = selectedCategory === 'variable' && selectedItemId === varKey;
+                  return (
+                    <div
+                      key={varKey}
+                      className={`tree-item-row ${isSelected ? 'selected' : ''}`}
+                      onClick={() => onSelectItem && onSelectItem('variable', varKey, v)}
+                    >
+                      <span className="item-icon-wrapper" data-category="variable">
+                        <SlidersIcon size={13} />
+                      </span>
+                      <div className="item-text-stack">
+                        <span className="item-primary-name">{v.name}</span>
+                        <span className="item-sub-desc">
+                          {v.category} · Default: {v.defaultVal}{v.unit}
+                        </span>
                       </div>
                     </div>
                   );

@@ -607,6 +607,11 @@ function createWindow() {
       if (hasTopLevelJBeam) {
         // The opened folder itself is the vehicle mod directory
         searchRoots.push(resolved);
+        // Also scan sibling BeamNG 'common' vehicle resources folder (shared wheels, tires, brakes) if present
+        const siblingCommon = path.join(path.dirname(resolved), 'common');
+        if (fs.existsSync(siblingCommon)) {
+          searchRoots.push(siblingCommon);
+        }
       } else if (hasVehiclesFolder) {
         // Standard BeamNG mod structure with vehicles/<vehicle_name>/
         const vehiclesDir = path.join(resolved, 'vehicles');

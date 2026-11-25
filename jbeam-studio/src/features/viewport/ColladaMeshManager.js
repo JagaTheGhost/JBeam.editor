@@ -480,12 +480,195 @@ export class VisualMeshManager {
   }
 
   /**
+   * Applies granular submesh isolation and visibility filtering.
+   * Matches submesh names with fuzzy suffixes, parent groups, and exact names.
+   * @param {object} options
+   * @param {Set<string>|string[]|null} [options.hiddenMeshNames] - Submeshes to explicitly hide
+   * @param {string|null} [options.soloMeshName] - If set, only this submesh is shown
+   * @param {Set<string>|string[]|null} [options.allowedMeshNames] - If set, only submeshes in this set are shown
+   * @param {boolean} [options.forceExplicit] - If true, empty allowedMeshNames hides all submeshes without fallback
+   * @returns {number} Count of visible submeshes
+   */
+  applySubmeshIsolation({ hiddenMeshNames = null, soloMeshName = null, allowedMeshNames = null, forceExplicit = false } = {}) {
+    const normalize = (str) => {
+      if (!str) return '';
+      return String(str).trim().toLowerCase()
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/\.\d+$/, '')
+        .replace(/_lod\d+$/i, '');
+    };
+
+    const normHidden = new Set();
+    if (hiddenMeshNames) {
+      const list = hiddenMeshNames instanceof Set ? hiddenMeshNames : Array.from(hiddenMeshNames);
+      for (const n of list) {
+        const c = normalize(n);
+        if (c) normHidden.add(c);
+      }
+    }
+
+    const normAllowed = allowedMeshNames ? new Set() : null;
+    if (allowedMeshNames) {
+      const list = allowedMeshNames instanceof Set ? allowedMeshNames : Array.from(allowedMeshNames);
+      for (const n of list) {
+        const c = normalize(n);
+        if (c) normAllowed.add(c);
+      }
+    }
+
+    const normSolo = soloMeshName ? normalize(soloMeshName) : null;
+
+    let visibleCount = 0;
+    for (const mesh of this.allMeshes) {
+      if (mesh.userData?.isHelperLine) {
+        mesh.visible = false;
+        continue;
+      }
+
+      const candidateNames = [];
+      if (mesh.name) candidateNames.push(mesh.name);
+      let p = mesh.parent;
+      while (p && p !== this.meshGroup && !p.name?.startsWith('collada_vehicle_scene')) {
+        const pName = (p.name || '').trim();
+        if (pName && pName !== 'Scene' && pName !== 'RootNode' && p.children && p.children.length <= 8) {
+          candidateNames.push(pName);
+        }
+        p = p.parent;
+      }
+
+      const matchesTarget = (targetSetOrSingle) => {
+        if (!targetSetOrSingle) return false;
+        for (const raw of candidateNames) {
+          const l = raw.trim().toLowerCase();
+          const n = normalize(l);
+          if (typeof targetSetOrSingle === 'string') {
+            if (l === targetSetOrSingle || n === targetSetOrSingle || n.startsWith(targetSetOrSingle + '_') || n.startsWith(targetSetOrSingle + '.') || n.endsWith('_' + targetSetOrSingle)) {
+              return true;
+            }
+          } else {
+            if (targetSetOrSingle.has(l) || targetSetOrSingle.has(n)) return true;
+            for (const t of targetSetOrSingle) {
+              if (n === t || n.startsWith(t + '_') || n.startsWith(t + '.') || n.endsWith('_' + t)) return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      let isVisible = true;
+      if (normSolo) {
+        isVisible = matchesTarget(normSolo);
+      } else {
+        if (normAllowed && (normAllowed.size > 0 || forceExplicit)) {
+          isVisible = normAllowed.size > 0 ? matchesTarget(normAllowed) : false;
+        }
+        if (isVisible && normHidden.size > 0) {
+          if (matchesTarget(normHidden)) {
+            isVisible = false;
+          }
+        }
+      }
+
+      mesh.visible = isVisible;
+      if (isVisible) visibleCount++;
+    }
+
+    // Safety fallback: if not explicitly scoped and 0 submeshes matched, restore body meshes
+    if (!forceExplicit && visibleCount === 0 && !normSolo && (!normAllowed || normAllowed.size === 0) && this.allMeshes.length > 0) {
+      for (const mesh of this.allMeshes) {
+        if (!mesh.userData?.isHelperLine) {
+          mesh.visible = true;
+          visibleCount++;
+        }
+      }
+    }
+
+    return visibleCount;
+  }
+
+  /**
+   * Applies individual colors to submeshes (e.g. for multi-part / flexbody visualization).
+   * @param {Record<string, string|number>|Map<string, string|number>|null} meshColorMap - Map of mesh/flexbody name to hex color
+   */
+  applyPartFlexbodyColors(meshColorMap) {
+    if (!meshColorMap || (typeof meshColorMap === 'object' && Object.keys(meshColorMap).length === 0)) {
+      this.resetMeshColors();
+      return;
+    }
+
+    this.isMultiColorMode = true;
+    this.customMeshColorMap = meshColorMap;
+
+    // Build normalized lookup map: lowercase clean name -> hex number
+    const colorLookup = new Map();
+    const entries = meshColorMap instanceof Map ? meshColorMap.entries() : Object.entries(meshColorMap);
+    for (const [key, colorVal] of entries) {
+      if (!key) continue;
+      const cleanKey = String(key).trim().toLowerCase()
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/\.\d+$/, '')
+        .replace(/_lod\d+$/i, '');
+      const hexNum = typeof colorVal === 'number' ? colorVal : parseInt(String(colorVal).replace('#', ''), 16);
+      if (!Number.isNaN(hexNum)) {
+        colorLookup.set(cleanKey, hexNum);
+      }
+    }
+
+    for (const mesh of this.allMeshes) {
+      if (!mesh || !mesh.material) continue;
+      const rawName = (mesh.name || '').trim().toLowerCase();
+      const normName = rawName.replace(/\.\d+$/, '').replace(/_lod\d+$/i, '');
+
+      let matchedColor = colorLookup.get(rawName) ?? colorLookup.get(normName);
+      if (matchedColor === undefined) {
+        for (const [target, col] of colorLookup.entries()) {
+          if (normName === target || normName.startsWith(target + '_') || normName.startsWith(target + '.')) {
+            matchedColor = col;
+            break;
+          }
+        }
+      }
+
+      if (matchedColor !== undefined) {
+        mesh.material.color.setHex(matchedColor);
+        mesh.material.opacity = Math.max(0.75, this.opacity);
+        mesh.material.needsUpdate = true;
+      } else {
+        // Dim unassociated / unmatched meshes slightly so colored parts stand out
+        mesh.material.color.setHex(0x505a66);
+        mesh.material.opacity = this.opacity * 0.35;
+        mesh.material.needsUpdate = true;
+      }
+    }
+  }
+
+  /**
+   * Resets all submesh materials back to the standard uniform ghost color and opacity.
+   */
+  resetMeshColors() {
+    this.isMultiColorMode = false;
+    this.customMeshColorMap = null;
+    const baseColor = 0x8ea2b0;
+    for (const mesh of this.allMeshes) {
+      if (mesh && mesh.material) {
+        mesh.material.color.setHex(baseColor);
+        mesh.material.opacity = this.opacity;
+        mesh.material.needsUpdate = true;
+      }
+    }
+  }
+
+  /**
    * Selectively highlights a single submesh (e.g. for flexbody binding inspection)
    * while maintaining ghost opacity for the rest of the vehicle.
    * @param {string|null} meshName
    */
   highlightSubmesh(meshName) {
     this.highlightedSubmesh = meshName;
+    if (!meshName && this.isMultiColorMode && this.customMeshColorMap) {
+      this.applyPartFlexbodyColors(this.customMeshColorMap);
+      return;
+    }
     for (const mesh of this.allMeshes) {
       if (mesh.material) {
         if (meshName && mesh.name === meshName) {

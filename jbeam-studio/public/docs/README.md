@@ -22,8 +22,10 @@
 13. [Mechanical Workspace & Dyno Studio [EXPERIMENTAL]](#13-mechanical-workspace--dyno-studio-experimental)
 14. [Live Simulation Socket Connection (SimConnection)](#14-live-simulation-socket-connection-simconnection)
 15. [Multi-Layer Diagnostics & Problems Panel](#15-multi-layer-diagnostics--problems-panel)
-16. [Custom Web Bootstrapper Installer & Auto-Updates](#16-custom-web-bootstrapper-installer--auto-updates)
-17. [Comprehensive Keyboard Shortcuts Cheat Sheet](#17-comprehensive-keyboard-shortcuts-cheat-sheet)
+16. [PressureWheels & Soft-Body Tire Simulation](#16-pressurewheels--soft-body-tire-simulation)
+17. [Suspension Mechanics & Kinematics Sweep](#17-suspension-mechanics--kinematics-sweep)
+18. [Custom Web Bootstrapper Installer & Auto-Updates](#18-custom-web-bootstrapper-installer--auto-updates)
+19. [Comprehensive Keyboard Shortcuts Cheat Sheet](#19-comprehensive-keyboard-shortcuts-cheat-sheet)
 
 ---
 
@@ -188,7 +190,59 @@ Connects JBeam.editor directly to a running session of **BeamNG.drive**:
 
 ---
 
-## 16. Custom Web Bootstrapper Installer & Auto-Updates
+## 16. PressureWheels & Soft-Body Tire Simulation
+
+* **BeamNG `pressureWheels` & Legacy `hubWheels` Parser**:
+  * Decodes single-part and multi-part wheel assemblies (suspension spindle nodes + rim hub parameters + tire tread and PSI parameters).
+  * Automatically resolves dual schemas: parsed dictionary objects and raw SJSON tabular arrays.
+* **3D Soft-Body Physics Skeleton Generation**:
+  * Calculates spindle rotation axis ($\mathbf{P}_2 - \mathbf{P}_1$) and disc basis vectors across `numRays` angular steps.
+  * Generates inner/outer rim nodes ($H_{in}$, $H_{out}$) and tread nodes ($T_{in}$, $T_{out}$).
+  * Synthesizes spindle-to-rim spokes, rim barrel cross beams, sidewall beams (`|TIRESIDE`), tread ring perimeter beams (`|PRESSURED`), and diagonal shear beams (`|ANISOTROPIC`).
+  * Generates translucent pneumatic pressure quads (`PRESSURE`) with normal-oriented surfaces.
+* **Interactive 3D Viewport & HUD Overlay**:
+  * Toggleable via the **Overlays** menu (**PressureWheels Skeleton**).
+  * Interactive 3D raycast picking: clicking any wheel in the 3D scene opens its dedicated **Pressure Wheel** inspector card.
+  * Billboard HUD overlay displaying wheel name, radius, width, and inflation pressure (e.g. `FR (28.0 PSI)`).
+  * Multi-monitor IPC synchronization: wheel selection synchronizes seamlessly between main editor and detached viewports.
+* **Dedicated Inspector & Diagnostics**:
+  * Element Inspector displays wheel identity, spindle node jump chips, metric and imperial dimensions, inflation PSI, brake/parking torques, and line jump to Monaco code.
+  * Diagnostic validation catches missing spindle node references (`node1:` / `node2:`), invalid `wheelDir`, odd `numRays`, and inverted `hubRadius >= radius` before testing in-game.
+
+---
+
+## 17. Suspension Mechanics & Kinematics Sweep
+
+* **TorsionBars (Anti-Roll / Swaybars)**:
+  * Complete 4-node parser (`[id1, id2, id3, id4]`) decoding lever arm tips (`id1`, `id4`) and chassis pivots (`id2`, `id3`).
+  * 3D rendering: central torsion shaft cylinder, torque reaction coil spiral, lever arm lines, and spring rate badges (`ARB: XX kN/m`).
+  * Dedicated inspector card with 1-click jump to Monaco code and node jump chips.
+  * Structural diagnostics catch fatal zero-length torsion axes (`id2 == id3`), coincident arms, and missing nodes.
+* **Rails & SlideNodes**:
+  * Visualizes polyline guide rails with directional caps and metallic sliding collar nodes (`tolerance`, `spring`, `fixToRail`).
+  * Diagnostics flag rails with fewer than 2 nodes and slidenodes referencing undefined rails.
+
+---
+
+## 18. Crash & Detachment Zones (`breakGroup` & `deformGroup`)
+
+BeamNG handles part detachment and visual damage deformation using group triggers:
+* **`breakGroup` (Detachment Latches & Hinges)**:
+  * Governs structural separation and part shedding (e.g. hood latches, door hinges, bumper clips, exhaust hangers).
+  * In the **Crash Zones** color mode, all beams belonging to a breakGroup are rendered in vibrant deterministic colors.
+  * Structural diagnostics detect single-beam breakGroups, warning modders that road vibrations may prematurely trigger unintended part separation.
+* **`deformGroup` (Mesh Crush & Shatter Triggers)**:
+  * Governs mesh deformation triggers and material breaking (broken headlight glass, crumpled fenders, shattered mirrors).
+  * Automatically correlates flexbody definitions with their trigger beams.
+  * Diagnostics alert when a flexbody mesh references a deformGroup with zero assigned beams.
+* **Interactive Left Floating HUD & Solo Filtering**:
+  * Displays total break and deform groups across active parts.
+  * Click any group chip to solo it in 3D: soloed beams shine with bright neon colors while all other structural beams are dimmed to dark slate (`#334155`).
+  * Dedicated **Crash & Detachment Zones** card in the Element Inspector displays active groups and role explanations when inspecting beams.
+
+---
+
+## 19. Custom Web Bootstrapper Installer & Auto-Updates
 
 * **Standalone Installer (`JBeam.editor-Setup-v0.2Beta.exe`)**:
   * Auto-discovers BeamNG.drive Steam and userfolder locations.
@@ -200,7 +254,7 @@ Connects JBeam.editor directly to a running session of **BeamNG.drive**:
 
 ---
 
-## 17. Comprehensive Keyboard Shortcuts Cheat Sheet
+## 20. Comprehensive Keyboard Shortcuts Cheat Sheet
 
 | Action | Shortcut | Context |
 | :--- | :--- | :--- |

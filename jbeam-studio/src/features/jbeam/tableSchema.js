@@ -65,18 +65,46 @@ function processTableWithSchemaDestructive(jbeamTable, inputOptions, diagnostics
     return -1;
   }
 
+  let localOptions = replaceSpecialValues(Object.assign({}, inputOptions)) || {};
   if (header.__meta && header.__meta.type !== 'array') {
-    diagnostics.push(['error', 'Invalid table header. Must be a list, not a dict', header.__meta.range]);
-    return -1;
+    const tableKeys = Object.keys(jbeamTable).filter(k => k !== '__meta');
+    const firstArrayKey = tableKeys.find(k => {
+      const entry = jbeamTable[k];
+      return entry && typeof entry === 'object' && (!entry.__meta || entry.__meta.type === 'array');
+    });
+
+    if (firstArrayKey === undefined) {
+      // Option-only table (e.g., BeamNG wheel/tire pressureWheels sub-parts without a spindle header row)
+      const optionList = {};
+      let optIdx = 0;
+      for (const rk of tableKeys) {
+        const entry = jbeamTable[rk];
+        if (entry && typeof entry === 'object') {
+          optionList[optIdx++] = entry;
+        }
+      }
+      return optionList;
+    }
+
+    for (const rk of tableKeys) {
+      if (rk === firstArrayKey) break;
+      const entry = jbeamTable[rk];
+      if (entry && typeof entry === 'object') {
+        Object.assign(localOptions, replaceSpecialValues(entry));
+        delete localOptions.__meta;
+      }
+      delete jbeamTable[rk];
+    }
+    header = jbeamTable[firstArrayKey];
+    delete jbeamTable[firstArrayKey];
+  } else {
+    delete jbeamTable[0];
   }
 
   let headerSize = Object.keys(header).filter(key => key !== '__meta').length;
   let headerSize1 = headerSize;
   let newListSize = 0;
   let newList = {};
-  let localOptions = replaceSpecialValues(Object.assign({}, inputOptions)) || {};
-
-  delete jbeamTable[0];
 
   let newRowId = 0;
   let keys = Object.keys(jbeamTable).filter(key => key !== '__meta');

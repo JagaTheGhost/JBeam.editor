@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import * as THREE from 'three';
 import {
   buildNodesGroup,
   buildBeamsGroup,
@@ -288,6 +289,33 @@ export function runElementTypesAndSurfaceClickTests() {
     assert.strictEqual(trueDups.length, 1, 'Physically identical duplicate beam must be flagged with a warning');
 
     console.log('✓ Test 8: Parallel staged springs allowed; truly redundant duplicate beams flagged.');
+  }
+
+  // Test 9: External Nodes & External Beams preserve their real BeamNG physics type in Type mode
+  {
+    const extTestNodes = {
+      a1: { id: 'a1', posX: 0, posY: 0, posZ: 0 },
+      ext_self: { id: 'ext_self', posX: 0.5, posY: 0, posZ: 0, selfCollision: true, __isExternal: true }
+    };
+    const extNodesGroup = buildNodesGroup(extTestNodes, null, 'type');
+    const extMesh = extNodesGroup.children.find(c => c.userData?.id === 'ext_self');
+    assert.ok(extMesh, 'External node mesh must be built');
+    assert.strictEqual(extMesh.userData.baseNodeType, 'selfCollision', 'External node must preserve underlying baseNodeType');
+    assert.strictEqual(extMesh.material.color.getHex(), 0x38bdf8, 'External selfCollision node sphere must use sky blue physics type color');
+    const extCage = extMesh.children.find(ch => ch.userData?.isExternalHalo === true);
+    assert.ok(extCage, 'External node must have violet wireframe diamond cage child');
+    assert.strictEqual(extCage.material.color.getHex(), 0xc084fc);
+
+    const extTestBeams = {
+      b_ext_sup: { 'id1:': 'a1', 'id2:': 'ext_self', beamType: '|SUPPORT', __partName: 'p1' }
+    };
+    const extBeamsGroup = buildBeamsGroup(extTestBeams, { a1: extTestNodes.a1 }, null, 'type', { ext_self: extTestNodes.ext_self });
+    const virtualLine = extBeamsGroup.children.find(c => c.name === 'virtual_beams_lines');
+    assert.ok(virtualLine, 'External dash-dot line must be built');
+    const colorAttr = virtualLine.geometry.getAttribute('color');
+    const supColor = new THREE.Color(0xfbbf24);
+    assert.ok(Math.abs(colorAttr.getX(0) - supColor.r) < 0.02 && Math.abs(colorAttr.getY(0) - supColor.g) < 0.02, 'External |SUPPORT beam in Type mode must use Support gold color while keeping dash-dot pattern');
+    console.log('✓ Test 9: External nodes (violet diamond cage + type color) and external beams (dash-dot + type color) verified.');
   }
 
   console.log('All Element Types & Surface 3D Click-to-Code tests passed!\n');

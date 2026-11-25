@@ -34,6 +34,11 @@ import { runMechanicalWorkspaceTests } from './mechanicalWorkspace.test.js';
 import { runElementTypesAndSurfaceClickTests } from './elementTypesAndSurfaceClick.test.js';
 import { runConnectedTopologyFocusTests } from './connectedTopologyFocus.test.js';
 import { runUpdaterTests } from './updater.test.js';
+import { runPressureWheelsTests } from './pressureWheels.test.js';
+import { runSuspensionPhysicsTests } from './suspensionPhysics.test.js';
+import { runAeroAndFrameAnalyticsTests } from './aeroAndFrameAnalytics.test.js';
+import { runCrashZonesTests } from './crashZones.test.js';
+import { runComponentFamilyExplorerTests } from './componentFamilyExplorer.test.js';
 
 console.log('============================================');
 console.log('       JBEAM STUDIO AUTOMATED TEST SUITE    ');
@@ -112,6 +117,16 @@ async function runAll() {
     runConnectedTopologyFocusTests();
     console.log('');
     runUpdaterTests();
+    console.log('');
+    runPressureWheelsTests();
+    console.log('');
+    runSuspensionPhysicsTests();
+    console.log('');
+    runAeroAndFrameAnalyticsTests();
+    console.log('');
+    runCrashZonesTests();
+    console.log('');
+    runComponentFamilyExplorerTests();
     console.log('');
     console.log('============================================');
     console.log('  ALL AUTOMATED TESTS PASSED SUCCESSFULLY!  ');

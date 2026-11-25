@@ -149,5 +149,25 @@ export function runMultiPartLinkageTests() {
   assert.strictEqual(highlightGroup.children[2].material.depthTest, false, 'Endpoint spheres must have depthTest false to stay on top');
   console.log('✓ Test 9: Beam selection visual highlight with cylinders and endpoint spheres verified.');
 
+  // Test 10: Distinct Multi-Part View Modes (Joints vs Cross-Beams vs Clashes)
+  const joints015 = buildMountingJointsGroup(mockNodes, 0.15);
+  assert.ok(joints015.userData.jointNodeKeys instanceof Set, 'Joints group must expose jointNodeKeys Set');
+  assert.ok(joints015.userData.jointNodeKeys.has('eng_1') && joints015.userData.jointNodeKeys.has('frame_mount_1'), 'jointNodeKeys must contain matching proximity endpoints');
+
+  assert.ok(crossBeamsGroup.userData.crossEndpointKeys instanceof Set, 'Cross-beams group must expose crossEndpointKeys Set');
+  assert.ok(crossBeamsGroup.userData.crossEndpointKeys.has('eng_1') && crossBeamsGroup.userData.crossEndpointKeys.has('frame_mount_1'), 'crossEndpointKeys must include cross-part endpoints');
+
+  const focusedNodesGroup = buildNodesGroup(mockNodes, null, 'type', new Set(), [], 'mountPoints', null, {
+    multiPartFocusNodeIds: joints015.userData.jointNodeKeys,
+    clashNodeIds: new Set(['eng_2'])
+  });
+  const eng1Mesh = focusedNodesGroup.children.find(c => c.userData?.id === 'eng_1');
+  const frame2Mesh = focusedNodesGroup.children.find(c => c.userData?.id === 'frame_node_2');
+  const clashMesh = focusedNodesGroup.children.find(c => c.userData?.id === 'eng_2');
+  assert.ok(eng1Mesh && eng1Mesh.scale.x > 1.2, 'Focused joint node must be enlarged');
+  assert.ok(frame2Mesh && frame2Mesh.material.opacity < 0.25 && frame2Mesh.scale.x < 0.7, 'Non-target background node in Joints mode must be dimmed and shrunk');
+  assert.ok(clashMesh && clashMesh.scale.x > 1.3, 'Clash-highlighted node must stand out clearly');
+  console.log('✓ Test 10: Distinct Multi-Part modes (Joints, Cross-Beams, Clash highlights) verified.');
+
   console.log('All Multi-Part Linkage & Inter-Part Mounting tests passed successfully!');
 }

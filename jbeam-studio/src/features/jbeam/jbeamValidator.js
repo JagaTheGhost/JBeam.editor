@@ -14,6 +14,9 @@
 import { decodeWithMetaWithDiagnostics } from './sjsonParser.js';
 import { processAllParts } from './tableSchema.js';
 import { extractPartFlexbodies, getNodeGroups, matchesSubmeshName } from './flexbodyUtils.js';
+import { extractTorsionBars, extractRailsAndSlideNodes } from './suspensionPhysicsParser.js';
+import { extractRefNodes, extractCamerasInternal } from './vehicleFrameParser.js';
+import { extractCrashZones, normalizeGroupList } from './crashZonesParser.js';
 
 export function validateJBeamDocument(text, filePath = 'document.jbeam', options = {}) {
   const problems = [];
@@ -358,7 +361,402 @@ export function validateJBeamDocument(text, filePath = 'document.jbeam', options
           }
         }
       }
-    }
+
+      // Check pressureWheels and hubWheels
+      const wheelSections = [part.pressureWheels, part.hubWheels].filter(Boolean);
+      for (const wheelSection of wheelSections) {
+        if (typeof wheelSection !== 'object') continue;
+        const wKeys = Object.keys(wheelSection).filter(k => k !== '__meta');
+        for (const wKey of wKeys) {
+          const w = wheelSection[wKey];
+          if (!w || typeof w !== 'object') continue;
+
+          const node1 = w['node1:'] || w.node1;
+          const node2 = w['node2:'] || w.node2;
+          const range = w.__meta?.range || [0, 0, 0, 0];
+
+          if (node1 || node2) {
+            const checkWheelNode = (nid, label) => {
+              if (!nid) return;
+              if (declaredNodeIds.has(nid)) return;
+              const externalPart = nodeToPartMap[nid] ||
+                (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[nid]?.partOrigin || (assembledNodes.has && assembledNodes.has(nid) ? 'assembly' : null)));
+
+              if (externalPart) {
+                problems.push({
+                  source: 'Inter-Part',
+                  severity: 'info',
+                  message: `Wheel "${w.name || wKey}" ${label} connects to external node "${nid}" (provided by part "${externalPart}")`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              } else {
+                problems.push({
+                  source: 'PressureWheels',
+                  severity: options.strictReferences ? 'error' : 'warning',
+                  message: `Wheel "${w.name || wKey}" ${label} references non-existent spindle node "${nid}" in part "${partName}" (may cause ghost hub in-game)`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            };
+
+            checkWheelNode(node1, 'inner spindle (node1:)');
+            checkWheelNode(node2, 'outer spindle (node2:)');
+
+            if (w.wheelDir !== undefined && w.wheelDir !== 1 && w.wheelDir !== -1) {
+              problems.push({
+                source: 'PressureWheels',
+                severity: 'warning',
+                message: `Wheel "${w.name || wKey}" has invalid wheelDir: ${w.wheelDir} (must be 1 for right or -1 for left)`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+
+            if (w.numRays !== undefined) {
+              const rays = Number(w.numRays);
+              if (isNaN(rays) || rays < 6 || rays % 2 !== 0) {
+                problems.push({
+                  source: 'PressureWheels',
+                  severity: 'warning',
+                  message: `Wheel "${w.name || wKey}" has invalid numRays: ${w.numRays} (must be an even integer >= 6)`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            }
+
+            if (w.radius !== undefined && w.hubRadius !== undefined) {
+              const r = Number(w.radius);
+              const hr = Number(w.hubRadius);
+              if (r > 0 && hr > 0 && hr >= r) {
+                problems.push({
+                  source: 'PressureWheels',
+                  severity: 'warning',
+                  message: `Wheel "${w.name || wKey}" hubRadius (${hr}m) must be strictly smaller than tire radius (${r}m)`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // --- 3g. TorsionBars Validation ---
+        if (part.torsionbars) {
+          const torsionBars = extractTorsionBars(part);
+          for (const tb of torsionBars) {
+            const range = tb.lineRange || part.torsionbars?.__meta?.range || [0, 0, 0, 0];
+            const checkTbNode = (nid, label) => {
+              if (declaredNodeIds.has(nid)) return;
+              const externalPart = nodeToPartMap[nid] ||
+                (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[nid]?.partOrigin || (assembledNodes.has && assembledNodes.has(nid) ? 'assembly' : null)));
+              if (!externalPart) {
+                problems.push({
+                  source: 'TorsionBars',
+                  severity: options.strictReferences ? 'error' : 'warning',
+                  message: `Torsionbar "${tb.name}" ${label} references non-existent node "${nid}" in part "${partName}"`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            };
+
+            checkTbNode(tb.id1, 'arm 1 tip (id1:)');
+            checkTbNode(tb.id2, 'pivot 1 (id2:)');
+            checkTbNode(tb.id3, 'pivot 2 (id3:)');
+            checkTbNode(tb.id4, 'arm 2 tip (id4:)');
+
+            // Zero-length torsion axis
+            if (tb.id2 === tb.id3) {
+              problems.push({
+                source: 'TorsionBars',
+                severity: 'error',
+                message: `Torsionbar "${tb.name}" central torsion axis has zero length (id2 == id3 == "${tb.id2}"). In BeamNG, coincident torsionbar pivots cause physics crashes.`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+
+            if (tb.id1 === tb.id2 || tb.id3 === tb.id4) {
+              problems.push({
+                source: 'TorsionBars',
+                severity: 'warning',
+                message: `Torsionbar "${tb.name}" has coincident arm nodes (zero lever arm length)`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+
+            if (typeof tb.spring === 'number' && tb.spring <= 0) {
+              problems.push({
+                source: 'TorsionBars',
+                severity: 'warning',
+                message: `Torsionbar "${tb.name}" has non-positive spring rate: ${tb.spring}`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+          }
+        }
+
+        // --- 3h. Rails & SlideNodes Validation ---
+        if (part.rails || part.slidenodes) {
+          const { rails, slideNodes } = extractRailsAndSlideNodes(part);
+
+          for (const [railName, rail] of Object.entries(rails)) {
+            const range = rail.lineRange || part.rails?.__meta?.range || [0, 0, 0, 0];
+            if (!rail.links || rail.links.length < 2) {
+              problems.push({
+                source: 'Rails',
+                severity: 'error',
+                message: `Rail "${railName}" has fewer than 2 linked nodes (requires at least 2 nodes to form a guide rail)`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            } else {
+              for (const linkNode of rail.links) {
+                if (!declaredNodeIds.has(linkNode)) {
+                  const externalPart = nodeToPartMap[linkNode] ||
+                    (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[linkNode]?.partOrigin || (assembledNodes.has && assembledNodes.has(linkNode) ? 'assembly' : null)));
+                  if (!externalPart) {
+                    problems.push({
+                      source: 'Rails',
+                      severity: options.strictReferences ? 'error' : 'warning',
+                      message: `Rail "${railName}" references non-existent link node "${linkNode}" in part "${partName}"`,
+                      line: range[0] + 1,
+                      column: range[1] + 1,
+                      endLine: range[2] + 1,
+                      endColumn: range[3] + 1,
+                      range
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          for (const sn of slideNodes) {
+            const range = sn.lineRange || part.slidenodes?.__meta?.range || [0, 0, 0, 0];
+            if (!declaredNodeIds.has(sn.id)) {
+              const externalPart = nodeToPartMap[sn.id] ||
+                (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[sn.id]?.partOrigin || (assembledNodes.has && assembledNodes.has(sn.id) ? 'assembly' : null)));
+              if (!externalPart) {
+                problems.push({
+                  source: 'SlideNodes',
+                  severity: options.strictReferences ? 'error' : 'warning',
+                  message: `SlideNode references non-existent node "${sn.id}" in part "${partName}"`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            }
+
+            if (sn.railName && !rails[sn.railName]) {
+              problems.push({
+                source: 'SlideNodes',
+                severity: 'error',
+                message: `SlideNode "${sn.id}" references undefined rail "${sn.railName}"`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+          }
+        }
+
+        // --- 3i. RefNodes Validation ---
+        if (part.refNodes) {
+          const rawRef = part.refNodes;
+          const rawKeys = typeof rawRef === 'object' && rawRef !== null
+            ? (Array.isArray(rawRef) ? rawRef : Object.keys(rawRef).filter(k => k !== '__meta'))
+            : [];
+          const isPlaceholder = rawKeys.length === 0 || (Array.isArray(rawRef) && rawRef.length === 1 && Array.isArray(rawRef[0]));
+          if (!isPlaceholder) {
+            const range = part.refNodes?.__meta?.range || [0, 0, 0, 0];
+            const refResult = extractRefNodes(part, part.nodes || {});
+
+            if (!refResult.refNode || !refResult.backNode || !refResult.leftNode || !refResult.upNode) {
+              problems.push({
+                source: 'RefNodes',
+                severity: options.strictReferences ? 'error' : 'warning',
+                message: `Incomplete "refNodes" declaration in part "${partName}". Must define ref, back, left, and up reference nodes.`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            } else {
+              const nodeRoles = [
+                { id: refResult.refNode, label: 'ref' },
+                { id: refResult.backNode, label: 'back' },
+                { id: refResult.leftNode, label: 'left' },
+                { id: refResult.upNode, label: 'up' }
+              ];
+
+              for (const { id: nid, label } of nodeRoles) {
+                if (!declaredNodeIds.has(nid)) {
+                  const externalPart = nodeToPartMap[nid] ||
+                    (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[nid]?.partOrigin || (assembledNodes.has && assembledNodes.has(nid) ? 'assembly' : null)));
+                  if (!externalPart) {
+                    problems.push({
+                      source: 'RefNodes',
+                      severity: options.strictReferences ? 'error' : 'warning',
+                      message: `Reference node (${label}) references non-existent node "${nid}" in part "${partName}"`,
+                      line: range[0] + 1,
+                      column: range[1] + 1,
+                      endLine: range[2] + 1,
+                      endColumn: range[3] + 1,
+                      range
+                    });
+                  }
+                }
+              }
+
+              const ids = [refResult.refNode, refResult.backNode, refResult.leftNode, refResult.upNode];
+              const uniqueIds = new Set(ids);
+              if (uniqueIds.size < 4) {
+                problems.push({
+                  source: 'RefNodes',
+                  severity: options.strictReferences ? 'error' : 'warning',
+                  message: `Duplicate or coincident nodes in "refNodes" [ref: "${refResult.refNode}", back: "${refResult.backNode}", left: "${refResult.leftNode}", up: "${refResult.upNode}"]. Vehicle origin triad requires 4 distinct non-coincident nodes.`,
+                  line: range[0] + 1,
+                  column: range[1] + 1,
+                  endLine: range[2] + 1,
+                  endColumn: range[3] + 1,
+                  range
+                });
+              }
+            }
+          }
+        }
+
+        // --- 3j. CamerasInternal Validation ---
+        if (part.camerasInternal || part.cameraInternal) {
+          const rawCams = part.camerasInternal || part.cameraInternal;
+          const range = rawCams?.__meta?.range || [0, 0, 0, 0];
+          const cams = extractCamerasInternal(part, part.nodes || {});
+
+          for (const cam of cams) {
+            if (cam.fov <= 0 || cam.fov > 175) {
+              problems.push({
+                source: 'CamerasInternal',
+                severity: 'warning',
+                message: `Camera "${cam.type}" has unusual FOV (${cam.fov}°). BeamNG internal cockpit cameras typically use 45° to 90°.`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+
+            for (const aid of cam.anchorIds) {
+              if (!declaredNodeIds.has(aid)) {
+                const externalPart = nodeToPartMap[aid] ||
+                  (assembledNodes && typeof assembledNodes === 'object' && (assembledNodes[aid]?.partOrigin || (assembledNodes.has && assembledNodes.has(aid) ? 'assembly' : null)));
+                if (!externalPart) {
+                  problems.push({
+                    source: 'CamerasInternal',
+                    severity: options.strictReferences ? 'error' : 'warning',
+                    message: `Camera "${cam.type}" anchor references non-existent node "${aid}" in part "${partName}"`,
+                    line: range[0] + 1,
+                    column: range[1] + 1,
+                    endLine: range[2] + 1,
+                    endColumn: range[3] + 1,
+                    range
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // --- 3k. Crash Zones (BreakGroup & DeformGroup) Validation ---
+        if (part.beams) {
+          const crashZones = extractCrashZones({ [partName]: part });
+
+          for (const [bgName, bgData] of Object.entries(crashZones.breakGroups)) {
+            if (bgData.beams.length === 1) {
+              const b = bgData.beams[0];
+              const range = b.lineRange || part.beams?.__meta?.range || [0, 0, 0, 0];
+              problems.push({
+                source: 'CrashZones',
+                severity: 'info',
+                message: `BreakGroup "${bgName}" contains only 1 beam. Single-beam breakgroups easily detach unintentionally from minor road vibrations.`,
+                line: range[0] + 1,
+                column: range[1] + 1,
+                endLine: range[2] + 1,
+                endColumn: range[3] + 1,
+                range
+              });
+            }
+          }
+
+          if (part.flexbodies) {
+            const rawFlex = part.flexbodies;
+            const flexList = Array.isArray(rawFlex) ? rawFlex : Object.values(rawFlex);
+            for (const fb of flexList) {
+              if (!fb) continue;
+              const rawDeform = fb.deformGroup || fb['deformGroup:'] || (Array.isArray(fb) ? (fb[6] || fb[4]) : null);
+              const deformList = normalizeGroupList(rawDeform);
+              const fbRange = fb.__meta?.range || part.flexbodies?.__meta?.range || [0, 0, 0, 0];
+              for (const dg of deformList) {
+                if (!crashZones.deformGroups[dg] || crashZones.deformGroups[dg].beams.length === 0) {
+                  problems.push({
+                    source: 'CrashZones',
+                    severity: 'warning',
+                    message: `Flexbody mesh references deformGroup "${dg}", but no beams in part "${partName}" are assigned to this deformGroup.`,
+                    line: fbRange[0] + 1,
+                    column: fbRange[1] + 1,
+                    endLine: fbRange[2] + 1,
+                    endColumn: fbRange[3] + 1,
+                    range: fbRange
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
   } catch (err) {
     problems.push({
       source: 'Validator',

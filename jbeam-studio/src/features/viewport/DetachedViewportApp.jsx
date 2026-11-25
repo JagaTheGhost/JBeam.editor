@@ -28,6 +28,9 @@ export function DetachedViewportApp() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedBeamInfo, setSelectedBeamInfo] = useState(null);
   const [selectedSurfaceInfo, setSelectedSurfaceInfo] = useState(null);
+  const [selectedWheelInfo, setSelectedWheelInfo] = useState(null);
+  const [selectedTorsionBarInfo, setSelectedTorsionBarInfo] = useState(null);
+  const [selectedSlideNodeInfo, setSelectedSlideNodeInfo] = useState(null);
   const [symmetryEnabled, setSymmetryEnabled] = useState(true);
   const [activeTool, setActiveTool] = useState('select');
   const [liveCoords, setLiveCoords] = useState(null);
@@ -44,7 +47,7 @@ export function DetachedViewportApp() {
   const [visualMeshSubnames, setVisualMeshSubnames] = useState([]);
   const [visualMeshSubmeshDetails, setVisualMeshSubmeshDetails] = useState({});
   const [highlightedSubmesh, setHighlightedSubmesh] = useState(null);
-  const [isolateMatchingMesh, setIsolateMatchingMesh] = useState(false);
+  const [isolateMatchingMesh, setIsolateMatchingMesh] = useState(true);
   const [viewportSource, setViewportSource] = useState('activeDocument');
 
   // Assembly State
@@ -149,6 +152,9 @@ export function DetachedViewportApp() {
           if (data.selectedNodeId !== undefined) setSelectedNodeId(data.selectedNodeId);
           if (data.selectedBeamInfo !== undefined) setSelectedBeamInfo(data.selectedBeamInfo);
           if (data.selectedSurfaceInfo !== undefined) setSelectedSurfaceInfo(data.selectedSurfaceInfo);
+          if (data.selectedWheelInfo !== undefined) setSelectedWheelInfo(data.selectedWheelInfo);
+          if (data.selectedTorsionBarInfo !== undefined) setSelectedTorsionBarInfo(data.selectedTorsionBarInfo);
+          if (data.selectedSlideNodeInfo !== undefined) setSelectedSlideNodeInfo(data.selectedSlideNodeInfo);
           break;
 
         case 'SET_SPAWNED_MESH_NAMES':
@@ -197,6 +203,7 @@ export function DetachedViewportApp() {
     setSelectedNodeId(nodeId);
     setSelectedBeamInfo(null);
     setSelectedSurfaceInfo(null);
+    setSelectedWheelInfo(null);
     sendMessage({ type: 'SELECT_NODE', nodeId });
   }, [sendMessage]);
 
@@ -213,6 +220,7 @@ export function DetachedViewportApp() {
     setSelectedBeamInfo(beamInfo);
     setSelectedNodeId(null);
     setSelectedSurfaceInfo(null);
+    setSelectedWheelInfo(null);
     sendMessage({ type: 'SELECT_BEAM', beamInfo });
   }, [sendMessage]);
 
@@ -220,7 +228,38 @@ export function DetachedViewportApp() {
     setSelectedSurfaceInfo(surfaceInfo);
     setSelectedNodeId(null);
     setSelectedBeamInfo(null);
+    setSelectedWheelInfo(null);
     sendMessage({ type: 'SELECT_SURFACE', surfaceInfo });
+  }, [sendMessage]);
+
+  const handleSelectWheel = useCallback((wheelInfo) => {
+    setSelectedWheelInfo(wheelInfo);
+    setSelectedNodeId(null);
+    setSelectedBeamInfo(null);
+    setSelectedSurfaceInfo(null);
+    setSelectedTorsionBarInfo(null);
+    setSelectedSlideNodeInfo(null);
+    sendMessage({ type: 'SELECT_WHEEL', wheelInfo });
+  }, [sendMessage]);
+
+  const handleSelectTorsionBar = useCallback((tbInfo) => {
+    setSelectedTorsionBarInfo(tbInfo);
+    setSelectedNodeId(null);
+    setSelectedBeamInfo(null);
+    setSelectedSurfaceInfo(null);
+    setSelectedWheelInfo(null);
+    setSelectedSlideNodeInfo(null);
+    sendMessage({ type: 'SELECT_TORSION_BAR', tbInfo });
+  }, [sendMessage]);
+
+  const handleSelectSlideNode = useCallback((snInfo) => {
+    setSelectedSlideNodeInfo(snInfo);
+    setSelectedNodeId(null);
+    setSelectedBeamInfo(null);
+    setSelectedSurfaceInfo(null);
+    setSelectedWheelInfo(null);
+    setSelectedTorsionBarInfo(null);
+    sendMessage({ type: 'SELECT_SLIDENODE', snInfo });
   }, [sendMessage]);
 
   const handleCommitNodeMove = useCallback((nodeId, newPosition, symmetry) => {
@@ -832,9 +871,15 @@ export function DetachedViewportApp() {
               selectedBeamKey={selectedBeamInfo?.beamKey}
               selectedBeamInfo={selectedBeamInfo}
               selectedSurfaceInfo={selectedSurfaceInfo}
+              selectedWheelInfo={selectedWheelInfo}
+              selectedTorsionBarInfo={selectedTorsionBarInfo}
+              selectedSlideNodeInfo={selectedSlideNodeInfo}
               onSelectNode={handleSelectNode}
               onSelectBeam={handleSelectBeam}
               onSelectSurface={handleSelectSurface}
+              onSelectWheel={handleSelectWheel}
+              onSelectTorsionBar={handleSelectTorsionBar}
+              onSelectSlideNode={handleSelectSlideNode}
               onNodeMoved={handleCommitNodeMove}
               onLiveNodeMove={handleLiveNodeMove}
               symmetryEnabled={symmetryEnabled}
@@ -948,6 +993,9 @@ export function DetachedViewportApp() {
                   selectedNodeId={selectedNodeId}
                   selectedBeamInfo={selectedBeamInfo}
                   selectedSurfaceInfo={selectedSurfaceInfo}
+                  selectedWheelInfo={selectedWheelInfo}
+                  selectedTorsionBarInfo={selectedTorsionBarInfo}
+                  selectedSlideNodeInfo={selectedSlideNodeInfo}
                   jbeamParts={jbeamParts}
                   onNodeCoordinateChange={handleCommitNodeMove}
                   onRenameNode={handleRenameNode}

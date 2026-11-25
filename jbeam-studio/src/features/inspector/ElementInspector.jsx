@@ -4,6 +4,7 @@ import NumberStepper from '../../components/NumberStepper.jsx';
 import { getSymmetricNodeId } from '../jbeam/symmetryUtils.js';
 import { normalizeBeamType } from '../viewport/visualizers.js';
 import { resolveFlexbodyAssociations } from '../jbeam/flexbodyUtils.js';
+import { normalizeGroupList, getCrashGroupColor } from '../jbeam/crashZonesParser.js';
 import { SubdivideIcon, MeshIcon, FocusIcon, EditIcon, CheckIcon, CloseIcon, TagIcon, WarningIcon } from '../../components/Icons.jsx';
 import { formatBatchNodeName } from '../jbeam/batchRenamer.js';
 import { BEAM_PRESETS, formatNtoMetric } from './inspectorUtils.js';
@@ -19,6 +20,9 @@ export function ElementInspector({
   selectedNodeId,
   selectedBeamInfo,
   selectedSurfaceInfo = null,
+  selectedWheelInfo = null,
+  selectedTorsionBarInfo = null,
+  selectedSlideNodeInfo = null,
   multiSelectedNodes = [],
   onMultiSelectChange = null,
   jbeamParts,
@@ -331,6 +335,345 @@ export function ElementInspector({
     }
   }, [effectiveNodeId, foundNode?.id, foundNode?.nodeWeight, foundNode?.frictionCoef]);
 
+  // 0. WHEEL INSPECTOR (When a PressureWheel is selected)
+  if (selectedWheelInfo) {
+    const wheel = selectedWheelInfo.wheelDef || selectedWheelInfo;
+    const stats = selectedWheelInfo.stats || {};
+    const radiusInch = wheel.radius ? (wheel.radius / 0.0254).toFixed(1) : '—';
+    const hubInch = wheel.hubRadius ? ((wheel.hubRadius * 2) / 0.0254).toFixed(1) : '—';
+    const widthMm = wheel.tireWidth ? Math.round(wheel.tireWidth * 1000) : '—';
+
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-header">
+          <span className="badge" style={{ backgroundColor: 'var(--bng-orange, #0099FF)', color: '#fff' }}>
+            PRESSURE WHEEL
+          </span>
+          <div className="inspector-title-row">
+            <span className="inspector-title">Wheel [{wheel.name}]</span>
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Identity & Axle Spindle</div>
+          <div className="prop-row">
+            <span className="prop-label">Wheel Name</span>
+            <span className="prop-value" style={{ fontWeight: 600, color: 'var(--bng-orange-hover, #33ADFF)' }}>
+              {wheel.name} ({wheel.side === 'left' ? 'Left Side' : 'Right Side'})
+            </span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Spindle Axis</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {wheel.node1 && (
+                <button
+                  type="button"
+                  className="inspector-node-chip"
+                  onClick={() => onSelectNode && onSelectNode(wheel.node1)}
+                  title={`Select Inner Spindle Node "${wheel.node1}"`}
+                >
+                  {wheel.node1} ↗
+                </button>
+              )}
+              {wheel.node2 && (
+                <button
+                  type="button"
+                  className="inspector-node-chip"
+                  onClick={() => onSelectNode && onSelectNode(wheel.node2)}
+                  title={`Select Outer Spindle Node "${wheel.node2}"`}
+                >
+                  {wheel.node2} ↗
+                </button>
+              )}
+            </div>
+          </div>
+          {wheel.nodeArm && (
+            <div className="prop-row">
+              <span className="prop-label">Torque / Brake Arm</span>
+              <button
+                type="button"
+                className="inspector-node-chip"
+                onClick={() => onSelectNode && onSelectNode(wheel.nodeArm)}
+                title={`Select Torque Arm Node "${wheel.nodeArm}"`}
+              >
+                {wheel.nodeArm} ↗
+              </button>
+            </div>
+          )}
+          <div className="prop-row">
+            <span className="prop-label">Part Origin</span>
+            <span className="prop-value">{wheel.partName || 'Active Part'}</span>
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Physical Tire & Rim Dimensions</div>
+          <div className="prop-row">
+            <span className="prop-label">Tire Outer Radius</span>
+            <span className="prop-value">{wheel.radius} m ({radiusInch}" overall)</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Rim Diameter</span>
+            <span className="prop-value">{hubInch}" rim ({wheel.hubRadius} m radius)</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Tire Section Width</span>
+            <span className="prop-value">{widthMm} mm ({wheel.tireWidth} m)</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Circumferential Rays</span>
+            <span className="prop-value" style={{ color: '#00e5ff', fontWeight: 600 }}>{wheel.numRays} rays</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Inflation Pressure</span>
+            <span className="prop-value" style={{ color: '#38bdf8', fontWeight: 600 }}>
+              {wheel.pressurePSI} PSI
+            </span>
+          </div>
+          {wheel.wheelOffset !== undefined && wheel.wheelOffset !== 0 && (
+            <div className="prop-row">
+              <span className="prop-label">Axle Offset</span>
+              <span className="prop-value">{wheel.wheelOffset} m</span>
+            </div>
+          )}
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Braking & Dynamics</div>
+          <div className="prop-row">
+            <span className="prop-label">Brake Torque</span>
+            <span className="prop-value">{wheel.brakeTorque || 0} N·m</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Parking Torque</span>
+            <span className="prop-value">{wheel.parkingTorque || 0} N·m</span>
+          </div>
+          {stats.nodeCount && (
+            <div className="prop-row">
+              <span className="prop-label">Generated Mesh</span>
+              <span className="prop-value">
+                {stats.nodeCount} nodes · {stats.beamCount} beams · {stats.surfaceCount} faces
+              </span>
+            </div>
+          )}
+        </div>
+
+        {wheel.range && (
+          <button
+            onClick={() => onJumpToCode && onJumpToCode(wheel.range[0] + 1, {
+              partName: wheel.partName,
+              filePath: wheel.filePath || jbeamParts?.[wheel.partName]?.__filePath,
+              type: 'wheel'
+            })}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Jump to Wheel in Source (Ln {wheel.range[0] + 1})
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // 0b. TORSION BAR INSPECTOR
+  if (selectedTorsionBarInfo) {
+    const tb = selectedTorsionBarInfo.torsionBar || selectedTorsionBarInfo;
+    const springKn = tb.spring ? (tb.spring / 1000).toFixed(1) : 0;
+
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-header">
+          <span className="badge" style={{ backgroundColor: '#00e676', color: '#000', fontWeight: 700 }}>
+            TORSION BAR / SWAYBAR
+          </span>
+          <div className="inspector-title-row">
+            <span className="inspector-title">{tb.name || 'Torsion Bar'}</span>
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Nodes & Topology</div>
+          <div className="prop-row">
+            <span className="prop-label">Arm 1 Tip (id1:)</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(tb.id1)}
+              title={`Select Arm Node "${tb.id1}"`}
+            >
+              {tb.id1} ↗
+            </button>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Pivot 1 (id2:)</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(tb.id2)}
+              title={`Select Pivot Node "${tb.id2}"`}
+            >
+              {tb.id2} ↗
+            </button>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Pivot 2 (id3:)</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(tb.id3)}
+              title={`Select Pivot Node "${tb.id3}"`}
+            >
+              {tb.id3} ↗
+            </button>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Arm 2 Tip (id4:)</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(tb.id4)}
+              title={`Select Arm Node "${tb.id4}"`}
+            >
+              {tb.id4} ↗
+            </button>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Part Origin</span>
+            <span className="prop-value">{tb.partOrigin || 'Active Part'}</span>
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Torsional Elasticity & Limits</div>
+          <div className="prop-row">
+            <span className="prop-label">Spring Stiffness</span>
+            <span className="prop-value" style={{ color: '#00e676', fontWeight: 600 }}>
+              {tb.spring?.toLocaleString()} N/m ({springKn} kN/m)
+            </span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Damping</span>
+            <span className="prop-value">{tb.damp || 0} N·s/m</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Deformation Threshold</span>
+            <span className="prop-value">{tb.deform}</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Yield Strength</span>
+            <span className="prop-value">{tb.strength}</span>
+          </div>
+          {tb.breakGroup && (
+            <div className="prop-row">
+              <span className="prop-label">Break Group</span>
+              <span className="prop-value" style={{ color: '#f59e0b', fontWeight: 600 }}>{tb.breakGroup}</span>
+            </div>
+          )}
+        </div>
+
+        {tb.lineRange && (
+          <button
+            onClick={() => onJumpToCode && onJumpToCode(tb.lineRange[0] + 1, {
+              partName: tb.partOrigin,
+              filePath: jbeamParts?.[tb.partOrigin]?.__filePath,
+              type: 'torsionbar'
+            })}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Jump to Torsion Bar in Source (Ln {tb.lineRange[0] + 1})
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // 0c. SLIDENODE & RAIL INSPECTOR
+  if (selectedSlideNodeInfo) {
+    const sn = selectedSlideNodeInfo.slideNode || selectedSlideNodeInfo;
+    const rail = selectedSlideNodeInfo.rail;
+
+    return (
+      <div className="inspector-panel">
+        <div className="inspector-header">
+          <span className="badge" style={{ backgroundColor: '#00e5ff', color: '#000', fontWeight: 700 }}>
+            SLIDENODE / RAIL
+          </span>
+          <div className="inspector-title-row">
+            <span className="inspector-title">Node [{sn.id}] on Rail [{sn.railName}]</span>
+          </div>
+        </div>
+
+        <div className="inspector-section">
+          <div className="inspector-section-title">Slide Node Details</div>
+          <div className="prop-row">
+            <span className="prop-label">Sliding Node ID</span>
+            <button
+              type="button"
+              className="inspector-node-chip"
+              onClick={() => onSelectNode && onSelectNode(sn.id)}
+              title={`Select Sliding Node "${sn.id}"`}
+            >
+              {sn.id} ↗
+            </button>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Assigned Rail</span>
+            <span className="prop-value" style={{ color: '#00e5ff', fontWeight: 600 }}>{sn.railName}</span>
+          </div>
+          {rail && rail.links && (
+            <div className="prop-row">
+              <span className="prop-label">Rail Path Nodes</span>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {rail.links.map(nid => (
+                  <button
+                    key={nid}
+                    type="button"
+                    className="inspector-node-chip"
+                    onClick={() => onSelectNode && onSelectNode(nid)}
+                    title={`Select Rail Link Node "${nid}"`}
+                  >
+                    {nid} ↗
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="prop-row">
+            <span className="prop-label">Attached to Rail</span>
+            <span className="prop-value">{sn.attached ? 'Yes (Constrained)' : 'No'}</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Tolerance</span>
+            <span className="prop-value">{sn.tolerance || 0} m</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Spring Stiffness</span>
+            <span className="prop-value">{typeof sn.spring === 'number' ? sn.spring.toLocaleString() : sn.spring} N/m</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label">Strength</span>
+            <span className="prop-value">{sn.strength}</span>
+          </div>
+        </div>
+
+        {sn.lineRange && (
+          <button
+            onClick={() => onJumpToCode && onJumpToCode(sn.lineRange[0] + 1, {
+              partName: sn.partOrigin,
+              filePath: jbeamParts?.[sn.partOrigin]?.__filePath,
+              type: 'slidenode'
+            })}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Jump to SlideNode in Source (Ln {sn.lineRange[0] + 1})
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (inspectedBeam && inspectedBeam['id1:'] && inspectedBeam['id2:']) {
     const beam = inspectedBeam;
     const partName = inspectedPartName || beam.__partName;
@@ -364,8 +707,11 @@ export function ElementInspector({
     }
 
     const coreBeamPropKeys = ['beamSpring', 'beamDamp', 'beamDeform', 'beamStrength', 'beamPrecompression', 'beamType'];
+    const crashPropKeys = ['breakGroup', 'breakGroup:', 'deformGroup', 'deformGroup:'];
+    const breakGroups = normalizeGroupList(beam.breakGroup || beam['breakGroup:']);
+    const deformGroups = normalizeGroupList(beam.deformGroup || beam['deformGroup:']);
     const otherBeamProps = Object.keys(beam).filter(
-      k => !['__meta', 'id1:', 'id2:', 'node1', 'node2', '__partName', '__beamKey', ...coreBeamPropKeys].includes(k)
+      k => !['__meta', 'id1:', 'id2:', 'node1', 'node2', '__partName', '__beamKey', ...coreBeamPropKeys, ...crashPropKeys].includes(k)
     );
 
     const normType = normalizeBeamType(beam.beamType || (beamKey?.startsWith('hydro_') ? '|HYDRO' : '|NORMAL'));
@@ -753,6 +1099,84 @@ export function ElementInspector({
               ))}
             </div>
           )}
+
+          {/* Crash & Detachment Zones Section */}
+          <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Crash & Detachment Zones
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+                {breakGroups.length + deformGroups.length > 0 ? `${breakGroups.length + deformGroups.length} Active` : 'Ungrouped'}
+              </span>
+            </div>
+
+            {breakGroups.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 9.5, color: '#fda4af', marginBottom: 3, fontWeight: 600 }}>
+                  Break Group (Detachment Latch)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {breakGroups.map(bg => (
+                    <span
+                      key={bg}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: '2px 7px',
+                        borderRadius: 4,
+                        background: 'rgba(244,63,94,0.15)',
+                        border: `1px solid ${getCrashGroupColor(bg)}`,
+                        color: '#f8fafc'
+                      }}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: getCrashGroupColor(bg) }} />
+                      {bg}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {deformGroups.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 9.5, color: '#7dd3fc', marginBottom: 3, fontWeight: 600 }}>
+                  Deform Group (Mesh Crush / Shatter)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {deformGroups.map(dg => (
+                    <span
+                      key={dg}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: '2px 7px',
+                        borderRadius: 4,
+                        background: 'rgba(14,165,233,0.15)',
+                        border: `1px solid ${getCrashGroupColor(dg)}`,
+                        color: '#f8fafc'
+                      }}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: getCrashGroupColor(dg) }} />
+                      {dg}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {breakGroups.length === 0 && deformGroups.length === 0 && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Standard structural member (no break or deform group triggers).
+              </div>
+            )}
+          </div>
         </div>
 
         {beam.__meta?.range && (
@@ -1031,7 +1455,7 @@ export function ElementInspector({
           {mirrorId && (
             <div className="prop-row">
               <span className="prop-label">Mirrored Node</span>
-              <span className="prop-value" style={{ color: 'var(--bng-orange-hover, #FF8533)' }}>
+              <span className="prop-value" style={{ color: 'var(--bng-orange-hover, #33ADFF)' }}>
                 {mirrorId} {symmetryEnabled ? '(Synced)' : '(Inactive)'}
               </span>
             </div>
@@ -1312,6 +1736,18 @@ export function ElementInspector({
           <div className="prop-row">
             <span className="prop-label">Surface Area</span>
             <span className="prop-value">{area.toFixed(4)} m²</span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label" title="Projected area resisting oncoming airflow (BeamNG -Y longitudinal axis)">Frontal Proj. (Drag)</span>
+            <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#f59e0b' }}>
+              {(area * Math.abs(normal[1] || 0)).toFixed(4)} m²
+            </span>
+          </div>
+          <div className="prop-row">
+            <span className="prop-label" title="Projected horizontal area contributing to downforce or lift (BeamNG +Z vertical axis)">Planform Proj. (Lift)</span>
+            <span className="prop-value" style={{ fontFamily: 'var(--font-mono)', color: '#00e5ff' }}>
+              {(area * Math.abs(normal[2] || 0)).toFixed(4)} m²
+            </span>
           </div>
           <div className="prop-row">
             <span className="prop-label">Normal Vector</span>

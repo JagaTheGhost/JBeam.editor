@@ -9,11 +9,36 @@ export function ProblemsPanel({
   onLoadLogContent = null
 }) {
   const [activeTab, setActiveTab] = useState('problems');
+  const [problemSearch, setProblemSearch] = useState('');
+  const [selectedProblemSeverities, setSelectedProblemSeverities] = useState(['error', 'warning', 'info']);
   const [logSearch, setLogSearch] = useState('');
   const [selectedLevels, setSelectedLevels] = useState(['error', 'warning', 'info']);
   const [vehicleOnly, setVehicleOnly] = useState(false);
   const [internalLogEntries, setInternalLogEntries] = useState([]);
   const fileInputRef = useRef(null);
+
+  const handleToggleProblemSeverity = (sev) => {
+    setSelectedProblemSeverities(prev => {
+      if (prev.includes(sev)) {
+        if (prev.length === 1) return prev; // Keep at least one severity visible
+        return prev.filter(s => s !== sev);
+      }
+      return [...prev, sev];
+    });
+  };
+
+  const filteredProblems = useMemo(() => {
+    const q = problemSearch.trim().toLowerCase();
+    return problems.filter(p => {
+      const sev = p.severity || 'warning';
+      if (!selectedProblemSeverities.includes(sev)) return false;
+      if (!q) return true;
+      return (
+        (p.message && p.message.toLowerCase().includes(q)) ||
+        (p.source && p.source.toLowerCase().includes(q))
+      );
+    });
+  }, [problems, selectedProblemSeverities, problemSearch]);
 
   // Combine external log entries (e.g. from sim socket or disk) with internal ones
   const effectiveLogEntries = useMemo(() => {
@@ -96,56 +121,112 @@ export function ProblemsPanel({
         ) : (
           <div className="problems-panel">
             <div className="problems-summary">
-              {errorCount > 0 && (
-                <span className="summary-item error-text">
-                  <ErrorIcon size={13} className="summary-icon" />
-                  <span>{errorCount} {errorCount === 1 ? 'Error' : 'Errors'}</span>
-                </span>
-              )}
-              {warningCount > 0 && (
-                <span className="summary-item warning-text">
-                  <WarningIcon size={13} className="summary-icon" />
-                  <span>{warningCount} {warningCount === 1 ? 'Warning' : 'Warnings'}</span>
-                </span>
-              )}
-              {infoCount > 0 && (
-                <span className="summary-item info-text">
-                  <InfoIcon size={13} className="summary-icon" />
-                  <span>{infoCount} {infoCount === 1 ? 'Notice' : 'Notices'}</span>
-                </span>
-              )}
+              <div className="problems-filter-pills">
+                {errorCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleProblemSeverity('error')}
+                    className={`summary-filter-btn error-text ${selectedProblemSeverities.includes('error') ? 'active' : 'inactive'}`}
+                    title={selectedProblemSeverities.includes('error') ? 'Hide Errors' : 'Show Errors'}
+                  >
+                    <ErrorIcon size={13} className="summary-icon" />
+                    <span>{errorCount} {errorCount === 1 ? 'Error' : 'Errors'}</span>
+                  </button>
+                )}
+                {warningCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleProblemSeverity('warning')}
+                    className={`summary-filter-btn warning-text ${selectedProblemSeverities.includes('warning') ? 'active' : 'inactive'}`}
+                    title={selectedProblemSeverities.includes('warning') ? 'Hide Warnings' : 'Show Warnings'}
+                  >
+                    <WarningIcon size={13} className="summary-icon" />
+                    <span>{warningCount} {warningCount === 1 ? 'Warning' : 'Warnings'}</span>
+                  </button>
+                )}
+                {infoCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleProblemSeverity('info')}
+                    className={`summary-filter-btn info-text ${selectedProblemSeverities.includes('info') ? 'active' : 'inactive'}`}
+                    title={selectedProblemSeverities.includes('info') ? 'Hide Notices' : 'Show Notices'}
+                  >
+                    <InfoIcon size={13} className="summary-icon" />
+                    <span>{infoCount} {infoCount === 1 ? 'Notice' : 'Notices'}</span>
+                  </button>
+                )}
+                {(selectedProblemSeverities.length < 3 || problemSearch.trim()) && (
+                  <button
+                    type="button"
+                    className="summary-reset-btn"
+                    onClick={() => {
+                      setSelectedProblemSeverities(['error', 'warning', 'info']);
+                      setProblemSearch('');
+                    }}
+                    title="Show all Errors, Warnings & Notices"
+                  >
+                    Show All
+                  </button>
+                )}
+              </div>
+
+              <div className="problems-search-wrap">
+                <input
+                  type="text"
+                  value={problemSearch}
+                  onChange={(e) => setProblemSearch(e.target.value)}
+                  placeholder="Filter diagnostics..."
+                  className="problems-search-input"
+                />
+                {problemSearch && (
+                  <button
+                    type="button"
+                    className="problems-search-clear"
+                    onClick={() => setProblemSearch('')}
+                    title="Clear filter"
+                  >
+                    <CloseIcon size={10} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="problems-list">
-              {problems.map((problem, idx) => {
-                const isError = problem.severity === 'error';
-                const isInfo = problem.severity === 'info';
-                const rowClass = isError ? 'problem-error' : (isInfo ? 'problem-info' : 'problem-warning');
+              {filteredProblems.length === 0 ? (
+                <div className="problems-empty" style={{ padding: '14px 8px' }}>
+                  <span>No diagnostics match the active filter.</span>
+                </div>
+              ) : (
+                filteredProblems.map((problem, idx) => {
+                  const isError = problem.severity === 'error';
+                  const isInfo = problem.severity === 'info';
+                  const rowClass = isError ? 'problem-error' : (isInfo ? 'problem-info' : 'problem-warning');
 
-                return (
-                  <div
-                    key={idx}
-                    className={`problem-row ${rowClass}`}
-                    onClick={() => onNavigateToProblem && onNavigateToProblem(problem)}
-                    title="Click to jump to source code location"
-                  >
-                    <span className="problem-icon">
-                      {isError ? (
-                        <ErrorIcon size={13} />
-                      ) : isInfo ? (
-                        <InfoIcon size={13} />
-                      ) : (
-                        <WarningIcon size={13} />
-                      )}
-                    </span>
-                    <span className="problem-source">[{problem.source || 'Validator'}]</span>
-                    <span className="problem-message">{problem.message}</span>
-                    <span className="problem-loc">
-                      Ln {problem.line}, Col {problem.column}
-                    </span>
-                  </div>
-                );
-              })}
+                  return (
+                    <div
+                      key={idx}
+                      className={`problem-row ${rowClass}`}
+                      onClick={() => onNavigateToProblem && onNavigateToProblem(problem)}
+                      title="Click to jump to source code location"
+                    >
+                      <span className="problem-icon">
+                        {isError ? (
+                          <ErrorIcon size={13} />
+                        ) : isInfo ? (
+                          <InfoIcon size={13} />
+                        ) : (
+                          <WarningIcon size={13} />
+                        )}
+                      </span>
+                      <span className="problem-source">[{problem.source || 'Validator'}]</span>
+                      <span className="problem-message">{problem.message}</span>
+                      <span className="problem-loc">
+                        Ln {problem.line}, Col {problem.column}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )

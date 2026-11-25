@@ -6,7 +6,8 @@ import {
   EyeOffIcon,
   CheckIcon,
   FilePlusIcon,
-  CloseIcon
+  CloseIcon,
+  ChevronDownIcon
 } from '../../components/Icons.jsx';
 import { sanitizeVehicleId } from '../templates/vehicleTemplateGenerator.js';
 import {
@@ -14,6 +15,7 @@ import {
   deriveMultiMeshPartName,
   generateMultiMeshJBeam
 } from './meshJBeamGenerator.js';
+import { buildSubmeshPrefixTree } from './submeshTreeUtils.js';
 
 /**
  * Dedicated 3D Mesh (.DAE Collada) Sidebar Panel
@@ -44,6 +46,8 @@ export function DaeMeshPanel({
   // Search & Filter Tabs for Section 1
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState('all'); // 'all' | 'spawned' | 'selected'
+  const [explorerViewMode, setExplorerViewMode] = useState('tree'); // 'tree' | 'flat'
+  const [expandedFolderIds, setExpandedFolderIds] = useState(() => new Set());
   const emptyFileInputRef = useRef(null);
 
   // Multi-Mesh JBeam Selection State (starts empty; no preloaded mesh)
@@ -95,6 +99,61 @@ export function DaeMeshPanel({
     const q = searchQuery.toLowerCase().trim();
     return list.filter(name => name.toLowerCase().includes(q));
   }, [visualMeshSubnames, filterTab, searchQuery, spawnedMeshNames, selectedMeshes]);
+
+  // Hierarchical underscore prefix tree for filtered submeshes
+  const submeshTree = useMemo(() => {
+    return buildSubmeshPrefixTree(filteredSubnames, visualMeshSubmeshDetails);
+  }, [filteredSubnames, visualMeshSubmeshDetails]);
+
+  const allFolderIds = useMemo(() => {
+    const ids = [];
+    const walk = (nodes) => {
+      for (const node of nodes) {
+        if (node.type === 'folder') {
+          ids.push(node.id);
+          walk(node.children);
+        }
+      }
+    };
+    walk(submeshTree.nodes);
+    return ids;
+  }, [submeshTree]);
+
+  const areAllFoldersExpanded = allFolderIds.length > 0 && allFolderIds.every(id => expandedFolderIds.has(id));
+
+  const toggleFolderExpand = (folderId) => {
+    setExpandedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
+  const handleToggleExpandAll = () => {
+    if (areAllFoldersExpanded) {
+      setExpandedFolderIds(new Set());
+    } else {
+      setExpandedFolderIds(new Set(allFolderIds));
+    }
+  };
+
+  // Batch-toggle JBeam selection for all meshes inside a prefix folder
+  const handleToggleGroupSelection = (meshNames) => {
+    if (!Array.isArray(meshNames) || meshNames.length === 0) return;
+    setSelectedMeshes(prev => {
+      const next = new Set(prev);
+      const allSelected = meshNames.every(m => next.has(m));
+      if (allSelected) {
+        meshNames.forEach(m => next.delete(m));
+      } else {
+        meshNames.forEach(m => next.add(m));
+      }
+      return next;
+    });
+    setCreationSuccessMsg('');
+    setCreationErrorMsg('');
+  };
 
   // Auto-derive part name and description based on current selection
   const derivedPartName = useMemo(() => {
@@ -498,7 +557,7 @@ export function DaeMeshPanel({
                   }}
                 />
 
-                <div style={{ display: 'flex', gap: '4px' }}>
+                <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
                   <button
                     type="button"
                     onClick={() => setFilterTab('all')}
@@ -554,11 +613,103 @@ export function DaeMeshPanel({
                     For JBeam ({selectedCount})
                   </button>
                 </div>
+
+                {/* Hierarchy View Mode & Root Prefix Bar */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  fontSize: '10px',
+                  color: '#94a3b8'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                    {explorerViewMode === 'tree' && submeshTree.rootPrefix && (
+                      <span
+                        title={`Common prefix "${submeshTree.rootPrefix}_" unwrapped for cleaner grouping`}
+                        style={{
+                          background: 'rgba(56, 189, 248, 0.1)',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          color: '#7dd3fc',
+                          padding: '1px 6px',
+                          borderRadius: '3px',
+                          fontFamily: 'monospace',
+                          fontSize: '10px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {submeshTree.rootPrefix}_*
+                      </span>
+                    )}
+                    {explorerViewMode === 'tree' && allFolderIds.length > 0 && !searchQuery.trim() && (
+                      <button
+                        type="button"
+                        onClick={handleToggleExpandAll}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '3px',
+                          color: '#cbd5e1',
+                          fontSize: '10px',
+                          padding: '1px 6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {areAllFoldersExpanded ? 'Collapse All' : 'Expand All'}
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{
+                    display: 'inline-flex',
+                    background: 'rgba(0, 0, 0, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '3px',
+                    overflow: 'hidden',
+                    flexShrink: 0
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setExplorerViewMode('tree')}
+                      title="Group submeshes into multi-level underscore prefix folders"
+                      style={{
+                        background: explorerViewMode === 'tree' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                        color: explorerViewMode === 'tree' ? '#38bdf8' : '#94a3b8',
+                        border: 'none',
+                        padding: '2px 7px',
+                        fontSize: '10px',
+                        fontWeight: explorerViewMode === 'tree' ? 600 : 400,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Tree
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExplorerViewMode('flat')}
+                      title="Show flat list of all submeshes"
+                      style={{
+                        background: explorerViewMode === 'flat' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                        color: explorerViewMode === 'flat' ? '#38bdf8' : '#94a3b8',
+                        border: 'none',
+                        borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+                        padding: '2px 7px',
+                        fontSize: '10px',
+                        fontWeight: explorerViewMode === 'flat' ? 600 : 400,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Flat
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Submeshes List (File-Explorer Style with JBeam Multi-Select Checkboxes) */}
+              {/* Submeshes List (Hierarchical Underscore Tree or Flat Explorer) */}
               <div className="submeshes-scroll-box" style={{
-                maxHeight: '230px',
+                maxHeight: '260px',
                 overflowY: 'auto',
                 background: 'rgba(0, 0, 0, 0.25)',
                 border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -569,8 +720,8 @@ export function DaeMeshPanel({
                   <div style={{ padding: '14px', textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
                     {searchQuery ? `No meshes match "${searchQuery}"` : 'No meshes in this view filter'}
                   </div>
-                ) : (
-                  filteredSubnames.map(name => {
+                ) : (() => {
+                  const renderLeafRow = (name, displayLabel = name, depth = 0) => {
                     const isSpawned = spawnedMeshNames.has(name);
                     const isSelectedForJBeam = selectedMeshes.has(name);
                     const details = visualMeshSubmeshDetails[name];
@@ -582,7 +733,8 @@ export function DaeMeshPanel({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: '5px 8px',
+                          padding: '4px 8px',
+                          paddingLeft: `${(explorerViewMode === 'tree' ? 6 : 8) + depth * 14}px`,
                           borderRadius: '4px',
                           marginBottom: '2px',
                           background: isSelectedForJBeam
@@ -594,9 +746,10 @@ export function DaeMeshPanel({
                           transition: 'background 0.15s, border-color 0.15s'
                         }}
                       >
-                        {/* Left: JBeam Checkbox + 3D Viewport Eye Spawn Toggle + Name */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                          {/* Checkbox for JBeam Multi-Mesh Selection (Independent click target) */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                          {explorerViewMode === 'tree' && (
+                            <span style={{ width: '11px', flexShrink: 0 }} />
+                          )}
                           <input
                             type="checkbox"
                             checked={isSelectedForJBeam}
@@ -610,7 +763,6 @@ export function DaeMeshPanel({
                             }}
                           />
 
-                          {/* 3D Viewport Visibility Eye (Independent click target) */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -633,7 +785,6 @@ export function DaeMeshPanel({
                             {isSpawned ? <EyeIcon size={12} /> : <EyeOffIcon size={12} />}
                           </button>
 
-                          {/* Label click also toggles JBeam inclusion */}
                           <span
                             onClick={() => handleToggleMeshSelection(name)}
                             title={name}
@@ -648,12 +799,11 @@ export function DaeMeshPanel({
                               userSelect: 'none'
                             }}
                           >
-                            {name}
+                            {displayLabel}
                           </span>
                         </div>
 
-                        {/* Right: Badges (Poly Count & JBeam Selection Badge) */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
                           {isSelectedForJBeam && (
                             <span style={{
                               fontSize: '9px',
@@ -682,8 +832,160 @@ export function DaeMeshPanel({
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  };
+
+                  const renderTreeNode = (node, depth = 0) => {
+                    if (node.type === 'leaf') {
+                      return renderLeafRow(node.name, node.label, depth);
+                    }
+
+                    const isExpanded = Boolean(searchQuery.trim()) || expandedFolderIds.has(node.id);
+                    const allSelected = node.meshNames.every(m => selectedMeshes.has(m));
+                    const someSelected = !allSelected && node.meshNames.some(m => selectedMeshes.has(m));
+                    const spawnedInGroup = node.meshNames.filter(m => spawnedMeshNames.has(m)).length;
+                    const allSpawned = spawnedInGroup === node.meshCount;
+                    const someSpawned = !allSpawned && spawnedInGroup > 0;
+
+                    return (
+                      <div key={node.id}>
+                        <div
+                          onClick={() => toggleFolderExpand(node.id)}
+                          title={`${node.label} (${node.meshCount} meshes${node.totalTriangles > 0 ? `, ${node.totalTriangles.toLocaleString()} tris` : ''})`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '4px 8px',
+                            paddingLeft: `${6 + depth * 14}px`,
+                            borderRadius: '4px',
+                            marginBottom: '2px',
+                            background: allSelected
+                              ? 'rgba(56, 189, 248, 0.14)'
+                              : 'rgba(255, 255, 255, 0.04)',
+                            border: someSelected || allSelected
+                              ? '1px solid rgba(56, 189, 248, 0.28)'
+                              : '1px solid rgba(255, 255, 255, 0.05)',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#94a3b8',
+                              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                              transition: 'transform 0.12s ease',
+                              flexShrink: 0
+                            }}>
+                              <ChevronDownIcon size={11} />
+                            </span>
+
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someSelected;
+                              }}
+                              onChange={() => handleToggleGroupSelection(node.meshNames)}
+                              onClick={(e) => e.stopPropagation()}
+                              title={allSelected ? `Uncheck all ${node.meshCount} meshes in ${node.label}` : `Include all ${node.meshCount} meshes in ${node.label}`}
+                              style={{
+                                accentColor: '#38bdf8',
+                                cursor: 'pointer',
+                                margin: 0,
+                                flexShrink: 0
+                              }}
+                            />
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onToggleSpawnMesh) onToggleSpawnMesh(node.meshNames);
+                              }}
+                              title={allSpawned ? `Despawn all ${node.meshCount} in ${node.label}` : `Spawn all ${node.meshCount} in ${node.label}`}
+                              style={{
+                                background: allSpawned
+                                  ? 'rgba(34, 197, 94, 0.2)'
+                                  : someSpawned
+                                    ? 'rgba(56, 189, 248, 0.18)'
+                                    : 'rgba(255, 255, 255, 0.06)',
+                                border: allSpawned
+                                  ? '1px solid rgba(34, 197, 94, 0.5)'
+                                  : someSpawned
+                                    ? '1px solid rgba(56, 189, 248, 0.45)'
+                                    : '1px solid rgba(255, 255, 255, 0.15)',
+                                color: allSpawned ? '#4ade80' : (someSpawned ? '#38bdf8' : '#64748b'),
+                                borderRadius: '3px',
+                                padding: '2px 4px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}
+                            >
+                              {allSpawned || someSpawned ? <EyeIcon size={12} /> : <EyeOffIcon size={12} />}
+                            </button>
+
+                            <span style={{ display: 'inline-flex', color: '#38bdf8', flexShrink: 0 }}>
+                              <FolderIcon size={12} />
+                            </span>
+
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: '#e2e8f0',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {node.label}
+                            </span>
+
+                            <span style={{
+                              fontSize: '9.5px',
+                              color: '#7dd3fc',
+                              background: 'rgba(56, 189, 248, 0.14)',
+                              padding: '0px 5px',
+                              borderRadius: '8px',
+                              fontWeight: 600,
+                              flexShrink: 0
+                            }}>
+                              {node.meshCount}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                            {node.totalTriangles > 0 && (
+                              <span style={{
+                                fontSize: '10px',
+                                color: '#64748b',
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {node.totalTriangles > 999
+                                  ? `${(node.totalTriangles / 1000).toFixed(1)}k tris`
+                                  : `${node.totalTriangles} tris`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {isExpanded && node.children.map(child => renderTreeNode(child, depth + 1))}
+                      </div>
+                    );
+                  };
+
+                  if (explorerViewMode === 'flat') {
+                    return filteredSubnames.map(name => renderLeafRow(name, name, 0));
+                  }
+                  return submeshTree.nodes.map(node => renderTreeNode(node, 0));
+                })()}
               </div>
 
               {/* Viewport Render Controls */}

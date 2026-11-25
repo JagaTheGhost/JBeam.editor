@@ -106,8 +106,9 @@ import { extractMechanicalOverview } from './features/mechanical/mechanicalExtra
 import { DetachedViewportApp } from './features/viewport/DetachedViewportApp.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import BetaCautionModal from './components/BetaCautionModal.jsx';
+import GlobalTooltip from './components/GlobalTooltip.jsx';
 
-export const APP_VERSION = 'v0.2Beta';
+export const APP_VERSION = 'v0.3Beta';
 
 const UNTITLED_JBEAM = `{
   "part_name": {
@@ -229,6 +230,8 @@ export function App() {
   const [nonActiveViewType, setNonActiveViewType] = useState('cadWire'); // 'cadWire', 'mountPoints', 'crossBeams', 'ghost', 'wireframe', 'dimmed'
   const [codeHoveredElement, setCodeHoveredElement] = useState(null);
   const [codeSelectedElements, setCodeSelectedElements] = useState(null);
+  const [hoverFocusDimming, setHoverFocusDimming] = useState(true);
+  const [mechanicalKinematicsPreview, setMechanicalKinematicsPreview] = useState({ steering: 0, compression: 0 });
   const [multiSelectedNodes, setMultiSelectedNodes] = useState([]);
   const [focusCameraTrigger, setFocusCameraTrigger] = useState(null);
   const [isAssembling, setIsAssembling] = useState(false);
@@ -257,18 +260,26 @@ export function App() {
     setShowBetaCaution(false);
   }, []);
 
-  // Switch Left Sidebar Tab with automatic Assembly viewport restore
+  // Switch Left Sidebar Tab with automatic Assembly / Mechanical viewport restore
   const handleSwitchLeftTab = useCallback((targetTab) => {
     setLeftTab(prevTab => {
       if (prevTab === targetTab) return prevTab;
       if (targetTab === 'assembly') {
-        if (viewportSource !== 'assembly') {
+        if (viewportSource !== 'assembly' && prevTab !== 'mechanical') {
           prevViewportSourceBeforeAssemblyRef.current = viewportSource;
         }
         setViewportSource('assembly');
         setIsolateMatchingMesh(true);
-      } else if (prevTab === 'assembly') {
-        // User switched OUT of Assembly tab: restore previous viewport mode (e.g. 'activeDocument')
+      } else if (targetTab === 'mechanical') {
+        if (prevTab !== 'assembly' && viewportSource !== 'assembly') {
+          prevViewportSourceBeforeAssemblyRef.current = viewportSource;
+        }
+        if (compositeVehicleParts && Object.keys(compositeVehicleParts).length > 0) {
+          setViewportSource('assembly');
+        } else if (tabs.length > 1) {
+          setViewportSource('openTabs');
+        }
+      } else if (prevTab === 'assembly' || prevTab === 'mechanical') {
         const restored = (prevViewportSourceBeforeAssemblyRef.current && prevViewportSourceBeforeAssemblyRef.current !== 'assembly')
           ? prevViewportSourceBeforeAssemblyRef.current
           : 'activeDocument';
@@ -276,7 +287,7 @@ export function App() {
       }
       return targetTab;
     });
-  }, [viewportSource]);
+  }, [viewportSource, compositeVehicleParts, tabs.length]);
 
   // UI Layout State
   const [layoutMode, setLayoutMode] = useState('hybrid'); // 'hybrid', 'code', 'viewport'
@@ -289,7 +300,7 @@ export function App() {
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(440);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(340);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(170);
-  const [isolateMatchingMesh, setIsolateMatchingMesh] = useState(false);
+  const [isolateMatchingMesh, setIsolateMatchingMesh] = useState(true);
   const [isViewportDetached, setIsViewportDetached] = useState(false);
   const [detachedWindow, setDetachedWindow] = useState(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -339,12 +350,16 @@ export function App() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedBeamInfo, setSelectedBeamInfo] = useState(null);
   const [selectedSurfaceInfo, setSelectedSurfaceInfo] = useState(null);
+  const [selectedWheelInfo, setSelectedWheelInfo] = useState(null);
+  const [selectedTorsionBarInfo, setSelectedTorsionBarInfo] = useState(null);
+  const [selectedSlideNodeInfo, setSelectedSlideNodeInfo] = useState(null);
   const [symmetryEnabled, setSymmetryEnabled] = useState(true);
   const [activeTool, setActiveTool] = useState('select'); // 'select', 'addNode', 'addBeam', 'addTri', 'batchRename'
   const [gridSnap, setGridSnap] = useState(0.1);
   const [batchRenamePattern, setBatchRenamePattern] = useState('#fl');
   const [batchRenameIndex, setBatchRenameIndex] = useState(1);
   const [lastRenamedFeedback, setLastRenamedFeedback] = useState(null);
+  const [multiPartFeedback, setMultiPartFeedback] = useState(null);
   const [liveCoords, setLiveCoords] = useState(null);
   const [cursorPos, setCursorPos] = useState({ line: 1, column: 1 });
   const [validationResult, setValidationResult] = useState({ isValid: true, problems: [], parts: {} });
@@ -358,6 +373,12 @@ export function App() {
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
   const activeTabRef = useRef(activeTab);
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+  const tabsRef = useRef(tabs);
+  useEffect(() => { tabsRef.current = tabs; }, [tabs]);
+
+  const activeTabIdRef = useRef(activeTabId);
+  useEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
 
   const validationResultRef = useRef(validationResult);
   useEffect(() => { validationResultRef.current = validationResult; }, [validationResult]);
@@ -379,6 +400,9 @@ export function App() {
     setSelectedNodeId(null);
     setSelectedBeamInfo(null);
     setSelectedSurfaceInfo(null);
+    setSelectedWheelInfo(null);
+    setSelectedTorsionBarInfo(null);
+    setSelectedSlideNodeInfo(null);
     setCodeSelectedElements(null);
   }, [activeTabId]);
 
@@ -417,13 +441,22 @@ export function App() {
   const [meshOpacity, setMeshOpacity] = useState(0.45);
   const [meshWireframe, setMeshWireframe] = useState(false);
 
-  const handleToggleSpawnMesh = useCallback((meshName) => {
+  const handleToggleSpawnMesh = useCallback((meshNameOrList) => {
     setSpawnedMeshNames(prev => {
       const next = new Set(prev);
-      if (next.has(meshName)) {
-        next.delete(meshName);
+      if (Array.isArray(meshNameOrList)) {
+        const allSpawned = meshNameOrList.length > 0 && meshNameOrList.every(n => next.has(n));
+        if (allSpawned) {
+          meshNameOrList.forEach(n => next.delete(n));
+        } else {
+          meshNameOrList.forEach(n => next.add(n));
+        }
+        return next;
+      }
+      if (next.has(meshNameOrList)) {
+        next.delete(meshNameOrList);
       } else {
-        next.add(meshName);
+        next.add(meshNameOrList);
       }
       return next;
     });
@@ -916,33 +949,110 @@ export function App() {
     );
   };
 
-  // Central helper to apply lossless edits to activeTab with full Monaco undo/redo support
-  const applyDocumentEdit = useCallback((newText, source = 'viewport-action') => {
-    const curTab = activeTabRef.current || activeTab;
-    if (!curTab || !newText) return;
-    if (editorRef.current) {
-      const model = editorRef.current.getModel();
-      if (model) {
-        editorRef.current.executeEdits(source, [
-          {
-            range: model.getFullModelRange(),
-            text: newText
-          }
-        ]);
-        editorRef.current.pushUndoStop();
+  // Central helper to apply lossless edits to any open tab (active or background)
+  const applyEditToTab = useCallback((targetTabId, newText, source = 'viewport-action') => {
+    if (!targetTabId || !newText) return;
+    const curActiveId = activeTabIdRef.current || activeTabId;
+    if (targetTabId === curActiveId) {
+      if (editorRef.current) {
+        const model = editorRef.current.getModel();
+        if (model) {
+          editorRef.current.executeEdits(source, [
+            {
+              range: model.getFullModelRange(),
+              text: newText
+            }
+          ]);
+          editorRef.current.pushUndoStop();
+        }
+      }
+      if (activeTabRef.current) {
+        activeTabRef.current = { ...activeTabRef.current, content: newText, isDirty: true };
       }
     }
-    if (activeTabRef.current) {
-      activeTabRef.current = { ...activeTabRef.current, content: newText, isDirty: true };
+    if (tabsRef.current) {
+      tabsRef.current = tabsRef.current.map(t =>
+        t.id === targetTabId ? { ...t, content: newText, isDirty: true } : t
+      );
     }
     setTabs(prev =>
       prev.map(t =>
-        t.id === activeTabId
+        t.id === targetTabId
           ? { ...t, content: newText, isDirty: true }
           : t
       )
     );
-  }, [activeTab, activeTabId]);
+  }, [activeTabId]);
+
+  // Central helper to apply lossless edits to activeTab with full Monaco undo/redo support
+  const applyDocumentEdit = useCallback((newText, source = 'viewport-action') => {
+    const curTab = activeTabRef.current || activeTab;
+    if (!curTab || !newText) return;
+    applyEditToTab(curTab.id, newText, source);
+  }, [activeTab, applyEditToTab]);
+
+  // Resolve which open tab (active or background) owns a given partName / tabTitle / nodeIds
+  const resolveTabForPartOrNode = useCallback(({ partName = null, tabTitle = null, nodeIds = [] } = {}) => {
+    const cleanPart = partName ? String(partName).replace(/__tab_.*$/, '') : null;
+    const curTab = activeTabRef.current || activeTab;
+    const curParts = (validationResultRef.current || validationResult).parts || {};
+    const curPartKeys = Object.keys(curParts).filter(k => k !== '__meta');
+
+    if (curTab) {
+      if (cleanPart && curParts[cleanPart] && (!tabTitle || tabTitle === curTab.title)) {
+        return { tab: curTab, partName: cleanPart, parts: curParts, isActive: true };
+      }
+      if (nodeIds.length > 0 && (!tabTitle || tabTitle === curTab.title)) {
+        for (const pKey of curPartKeys) {
+          if (curParts[pKey]?.nodes && nodeIds.some(nid => curParts[pKey].nodes[nid])) {
+            return { tab: curTab, partName: pKey, parts: curParts, isActive: true };
+          }
+        }
+      }
+    }
+
+    const allTabs = tabsRef.current || tabs || [];
+    // Check background tabs (prioritizing matching tabTitle if provided)
+    const orderedTabs = tabTitle
+      ? [...allTabs.filter(t => t.title === tabTitle), ...allTabs.filter(t => t.title !== tabTitle)]
+      : allTabs;
+
+    for (const tab of orderedTabs) {
+      if (!tab?.content) continue;
+      if (curTab && tab.id === curTab.id) continue;
+      try {
+        const val = validateJBeamDocument(tab.content, tab.filePath || tab.title);
+        const tParts = val?.parts || {};
+        const tPartKeys = Object.keys(tParts).filter(k => k !== '__meta');
+        if (cleanPart && tParts[cleanPart]) {
+          return { tab, partName: cleanPart, parts: tParts, isActive: false };
+        }
+        if (nodeIds.length > 0) {
+          for (const pKey of tPartKeys) {
+            if (tParts[pKey]?.nodes && nodeIds.some(nid => tParts[pKey].nodes[nid])) {
+              return { tab, partName: pKey, parts: tParts, isActive: false };
+            }
+          }
+        }
+        if (tabTitle && tab.title === tabTitle && tPartKeys.length > 0) {
+          return { tab, partName: tPartKeys[0], parts: tParts, isActive: false };
+        }
+      } catch {
+        // Ignore unparseable background tab
+      }
+    }
+
+    // Fallback to active tab
+    if (curTab) {
+      return {
+        tab: curTab,
+        partName: cleanPart || curPartKeys[0] || 'main',
+        parts: curParts,
+        isActive: true
+      };
+    }
+    return null;
+  }, [activeTab, tabs, validationResult]);
 
   // Viewport/Inspector -> Code Sync (Lossless Two-Way Sync with Batch & Symmetry Support)
   const handleCommitNodeMove = useCallback((nodeIdOrBatch, newBeamngPos) => {
@@ -1055,18 +1165,46 @@ export function App() {
 
     if (nodesToUpdate.length === 0) return;
 
-    const updateRes = updateNodeCoordinatesLossless(curTab.content, nodesToUpdate);
-    if (updateRes.error) {
-      console.error('Failed to update node coordinates:', updateRes.error);
-      return;
+    // Route node coordinate updates to every owning open tab (supports multi-file cluster moves)
+    const activeUpdates = [];
+    const bgTabsUpdates = new Map(); // tabId -> { tab, nodes: [] }
+    const allTabs = tabsRef.current || tabs || [];
+    const curActiveId = activeTabIdRef.current || activeTabId;
+
+    for (const u of nodesToUpdate) {
+      const partExistsInActive = u.partName ? Boolean(parts[u.partName]?.nodes?.[u.id]) : Object.values(parts).some(p => p?.nodes?.[u.id]);
+      if (partExistsInActive || allTabs.length <= 1) {
+        activeUpdates.push(u);
+      } else {
+        const resolved = resolveTabForPartOrNode({ partName: u.partName, nodeIds: [u.id] });
+        if (resolved && resolved.tab && resolved.tab.id !== curActiveId) {
+          if (!bgTabsUpdates.has(resolved.tab.id)) {
+            bgTabsUpdates.set(resolved.tab.id, { tab: resolved.tab, nodes: [] });
+          }
+          bgTabsUpdates.get(resolved.tab.id).nodes.push({ ...u, partName: resolved.partName });
+        } else {
+          activeUpdates.push(u);
+        }
+      }
     }
 
-    if (updateRes.modifiedCount > 0) {
-      applyDocumentEdit(updateRes.updatedText, '3d-gizmo');
-      setLiveCoords(null);
-      runValidation(updateRes.updatedText, curTab.filePath || curTab.title);
+    if (activeUpdates.length > 0) {
+      const updateRes = updateNodeCoordinatesLossless(curTab.content, activeUpdates);
+      if (!updateRes.error && updateRes.modifiedCount > 0) {
+        applyEditToTab(curTab.id, updateRes.updatedText, '3d-gizmo');
+        setLiveCoords(null);
+        runValidation(updateRes.updatedText, curTab.filePath || curTab.title);
+      }
     }
-  }, [activeTab, activeTabId, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+
+    for (const { tab: bgTab, nodes: bgNodes } of bgTabsUpdates.values()) {
+      const bgRes = updateNodeCoordinatesLossless(bgTab.content, bgNodes);
+      if (!bgRes.error && bgRes.modifiedCount > 0) {
+        applyEditToTab(bgTab.id, bgRes.updatedText, '3d-gizmo');
+        setLiveCoords(null);
+      }
+    }
+  }, [activeTab, activeTabId, tabs, validationResult, symmetryEnabled, applyEditToTab, resolveTabForPartOrNode, runValidation]);
 
   // Option 2: Add Node visually
   const handleAddNode = useCallback((beamngPos) => {
@@ -1122,30 +1260,57 @@ export function App() {
     runValidation(res.updatedText, curTab.filePath || curTab.title);
   }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
 
-  // Option 2: Add Beam visually (Intra-Part or Cross-Part Mounting)
+  // Option 2: Add Beam visually (Intra-Part or Cross-Part Mounting across any open tab)
   const handleAddBeam = useCallback((id1, id2, properties = {}, isCrossPart = false, options = {}) => {
     const curTab = activeTabRef.current || activeTab;
     if (!curTab || !id1 || !id2) return;
-    const parts = (validationResultRef.current || validationResult).parts || {};
-    const partKeys = Object.keys(parts).filter(k => k !== '__meta');
-    let targetPartName = partKeys.length > 0 ? partKeys[0] : 'main';
 
-    let workingContent = curTab.content;
-    let actualId1 = id1;
-    let actualId2 = id2;
+    const startData = options.startData;
+    const endData = options.endData;
 
     if (isCrossPart) {
-      const startData = options.startData;
-      const endData = options.endData;
+      // Determine which endpoint belongs to an editable open tab (active tab preferred, else background open tab)
+      const startOpen = startData && !startData.isExternal
+        ? resolveTabForPartOrNode({ partName: startData.partName, tabTitle: startData.tabTitle, nodeIds: [id1] })
+        : null;
+      const endOpen = endData && !endData.isExternal
+        ? resolveTabForPartOrNode({ partName: endData.partName, tabTitle: endData.tabTitle, nodeIds: [id2] })
+        : null;
 
-      const isStartActive = startData ? !startData.isNonActive : Boolean(parts[targetPartName]?.nodes?.[id1]);
-      let activeNodeId = isStartActive ? id1 : id2;
-      let counterpartNodeId = isStartActive ? id2 : id1;
-      let counterpartTab = isStartActive ? (endData?.tabTitle || 'counterpart') : (startData?.tabTitle || 'counterpart');
+      let owningResolved = null;
+      let activeNodeId = id1;
+      let counterpartNodeId = id2;
+
+      if (startOpen?.isActive) {
+        owningResolved = startOpen;
+        activeNodeId = id1;
+        counterpartNodeId = id2;
+      } else if (endOpen?.isActive) {
+        owningResolved = endOpen;
+        activeNodeId = id2;
+        counterpartNodeId = id1;
+      } else if (startOpen && !startData?.isExternal) {
+        owningResolved = startOpen;
+        activeNodeId = id1;
+        counterpartNodeId = id2;
+      } else if (endOpen && !endData?.isExternal) {
+        owningResolved = endOpen;
+        activeNodeId = id2;
+        counterpartNodeId = id1;
+      } else {
+        owningResolved = resolveTabForPartOrNode({ nodeIds: [id1, id2] });
+      }
+
+      if (!owningResolved?.tab) return;
+      const targetTab = owningResolved.tab;
+      const targetPartName = owningResolved.partName;
+      let workingContent = targetTab.content;
+      let actualId1 = activeNodeId;
+      let actualId2 = counterpartNodeId;
 
       // Check for node ID collision between the two parts (e.g. both parts have 'n1r')
       if (options.hasCollision || activeNodeId === counterpartNodeId) {
-        const prefix = getPartPrefix(targetPartName, curTab.title);
+        const prefix = getPartPrefix(targetPartName, targetTab.title);
         const newActiveId = `${prefix}${activeNodeId}`;
 
         const renameRes = renameNodeLossless(workingContent, targetPartName, activeNodeId, newActiveId, { symmetry: false });
@@ -1158,13 +1323,7 @@ export function App() {
             newId: newActiveId,
             timestamp: Date.now()
           });
-        } else {
-          actualId1 = activeNodeId;
-          actualId2 = counterpartNodeId;
         }
-      } else {
-        actualId1 = activeNodeId;
-        actualId2 = counterpartNodeId;
       }
 
       // Configure BeamNG mounting properties: optional: true and breakGroup
@@ -1184,24 +1343,25 @@ export function App() {
         return;
       }
 
-      applyDocumentEdit(res.updatedText, 'add-cross-beam');
-      runValidation(res.updatedText, curTab.filePath || curTab.title);
+      applyEditToTab(targetTab.id, res.updatedText, 'add-cross-beam');
+      if (owningResolved.isActive) {
+        runValidation(res.updatedText, targetTab.filePath || targetTab.title);
+      }
       return;
     }
 
-    // Standard Intra-Part Beam
+    // Standard Intra-Part Beam (supports both active and background open tabs)
     if (id1 === id2) return;
-    for (const pKey of partKeys) {
-      const p = parts[pKey];
-      if (p?.nodes && (p.nodes[id1] || p.nodes[id2])) {
-        targetPartName = pKey;
-        break;
-      }
-    }
+    const resolved = resolveTabForPartOrNode({
+      partName: startData?.partName || endData?.partName,
+      tabTitle: startData?.tabTitle || endData?.tabTitle,
+      nodeIds: [id1, id2]
+    });
+    if (!resolved?.tab) return;
 
     const res = addBeamLossless(
-      curTab.content,
-      targetPartName,
+      resolved.tab.content,
+      resolved.partName,
       { id1, id2, properties },
       symmetryEnabled
     );
@@ -1211,9 +1371,11 @@ export function App() {
       return;
     }
 
-    applyDocumentEdit(res.updatedText, 'add-beam');
-    runValidation(res.updatedText, curTab.filePath || curTab.title);
-  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+    applyEditToTab(resolved.tab.id, res.updatedText, 'add-beam');
+    if (resolved.isActive) {
+      runValidation(res.updatedText, resolved.tab.filePath || resolved.tab.title);
+    }
+  }, [activeTab, symmetryEnabled, applyEditToTab, resolveTabForPartOrNode, runValidation]);
 
   // Option 2b: Prefix All Active Part Nodes (Resolving Cross-Part Collisions)
   const handlePrefixAllActiveNodes = useCallback(() => {
@@ -1232,9 +1394,25 @@ export function App() {
     if (res.renamedCount > 0) {
       applyDocumentEdit(res.updatedText, 'prefix-nodes');
       runValidation(res.updatedText, curTab.filePath || curTab.title);
+      const sampleMappings = (res.renames || []).slice(0, 6).map(m => `${m.oldId} → ${m.newId}`);
+      setMultiPartFeedback({
+        type: 'clash',
+        title: `Resolved Clashes: Prefixed ${res.renamedCount} Nodes with "${prefix}"`,
+        details: sampleMappings.length > 0 ? sampleMappings : [`All nodes in "${targetPartName}" now prefixed with "${prefix}"`],
+        totalCount: res.renamedCount,
+        timestamp: Date.now()
+      });
       setLastRenamedFeedback({
         oldId: 'Collision Fixed',
         newId: `Prefixed ${res.renamedCount} nodes with "${prefix}"`,
+        timestamp: Date.now()
+      });
+    } else {
+      setMultiPartFeedback({
+        type: 'info',
+        title: 'No Node Clashes Left to Rename',
+        details: [`Active part nodes already use unique prefix "${prefix}".`],
+        totalCount: 0,
         timestamp: Date.now()
       });
     }
@@ -1278,11 +1456,36 @@ export function App() {
       }
     }
 
-    if (counterpartNodes.length === 0) return;
+    if (counterpartNodes.length === 0) {
+      setMultiPartFeedback({
+        type: 'info',
+        title: 'Auto-Mount Requires 2+ Open Tabs',
+        details: ['Open a counterpart JBeam file (e.g. body or chassis) in another tab to link mounts.'],
+        totalCount: 0,
+        timestamp: Date.now()
+      });
+      return;
+    }
+
+    // Build set of existing cross-part beams so we don't duplicate existing mount links
+    const existingLinks = new Set();
+    if (curPart.beams) {
+      const bRows = Array.isArray(curPart.beams) ? curPart.beams : Object.values(curPart.beams);
+      for (const br of bRows) {
+        if (!br || typeof br !== 'object') continue;
+        const a = br['id1:'] || br[0];
+        const b = br['id2:'] || br[1];
+        if (a && b) {
+          existingLinks.add(`${a}__${b}`);
+          existingLinks.add(`${b}__${a}`);
+        }
+      }
+    }
 
     const activeRows = Array.isArray(curPart.nodes) ? curPart.nodes : Object.values(curPart.nodes);
     let workingContent = curTab.content;
     let linkedCount = 0;
+    const linkedSummaries = [];
 
     for (const r of activeRows) {
       if (!r || typeof r !== 'object') continue;
@@ -1307,6 +1510,9 @@ export function App() {
 
       if (closest) {
         let actId = nid;
+        if (existingLinks.has(`${actId}__${closest.id}`)) {
+          continue;
+        }
         if (actId === closest.id) {
           const prefix = getPartPrefix(targetPartName, curTab.title);
           const newActId = `${prefix}${actId}`;
@@ -1331,7 +1537,11 @@ export function App() {
         );
         if (!res.error && res.updatedText) {
           workingContent = res.updatedText;
+          existingLinks.add(`${actId}__${closest.id}`);
+          existingLinks.add(`${closest.id}__${actId}`);
           linkedCount++;
+          const distCm = (Math.sqrt(minDistSq) * 100).toFixed(1);
+          linkedSummaries.push(`${actId} ↔ ${closest.id} (${distCm}cm, ${closest.tabTitle})`);
         }
       }
     }
@@ -1339,34 +1549,39 @@ export function App() {
     if (linkedCount > 0) {
       applyDocumentEdit(workingContent, 'auto-mount');
       runValidation(workingContent, curTab.filePath || curTab.title);
+      setNonActiveViewType('crossBeams');
+      setMultiPartFeedback({
+        type: 'mount',
+        title: `Auto-Mount Connected ${linkedCount} New Mounting Beams`,
+        details: linkedSummaries,
+        totalCount: linkedCount,
+        timestamp: Date.now()
+      });
       setLastRenamedFeedback({
         oldId: 'Auto-Mount',
         newId: `Generated ${linkedCount} mounting beams (optional: true)`,
         timestamp: Date.now()
       });
+    } else {
+      setMultiPartFeedback({
+        type: 'info',
+        title: 'No Unlinked Proximity Mounts Found',
+        details: ['All counterpart node pairs within 0.15m are already connected, or no pairs are within 15cm.'],
+        totalCount: 0,
+        timestamp: Date.now()
+      });
     }
   }, [activeTab, tabs, validationResult, applyDocumentEdit, runValidation]);
 
-  // Option 2: Add Triangle visually
+  // Option 2: Add Triangle visually (supports active and background open tabs)
   const handleAddTriangle = useCallback((id1, id2, id3, properties = {}) => {
-    const curTab = activeTabRef.current || activeTab;
-    if (!curTab || !id1 || !id2 || !id3) return;
-    const parts = (validationResultRef.current || validationResult).parts || {};
-    const partKeys = Object.keys(parts).filter(k => k !== '__meta');
-    
-    // Find target part containing vertices
-    let targetPartName = partKeys.length > 0 ? partKeys[0] : 'main';
-    for (const pKey of partKeys) {
-      const p = parts[pKey];
-      if (p?.nodes && (p.nodes[id1] || p.nodes[id2] || p.nodes[id3])) {
-        targetPartName = pKey;
-        break;
-      }
-    }
+    if (!id1 || !id2 || !id3) return;
+    const resolved = resolveTabForPartOrNode({ nodeIds: [id1, id2, id3] });
+    if (!resolved?.tab) return;
 
     const res = addTriangleLossless(
-      curTab.content,
-      targetPartName,
+      resolved.tab.content,
+      resolved.partName,
       { id1, id2, id3, properties },
       symmetryEnabled
     );
@@ -1376,30 +1591,21 @@ export function App() {
       return;
     }
 
-    applyDocumentEdit(res.updatedText, 'add-triangle');
-    runValidation(res.updatedText, curTab.filePath || curTab.title);
-  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
-
-  // Option 2: Add Quad visually
-  const handleAddQuad = useCallback((id1, id2, id3, id4, properties = {}) => {
-    const curTab = activeTabRef.current || activeTab;
-    if (!curTab || !id1 || !id2 || !id3 || !id4) return;
-    const parts = (validationResultRef.current || validationResult).parts || {};
-    const partKeys = Object.keys(parts).filter(k => k !== '__meta');
-
-    // Find target part containing vertices
-    let targetPartName = partKeys.length > 0 ? partKeys[0] : 'main';
-    for (const pKey of partKeys) {
-      const p = parts[pKey];
-      if (p?.nodes && (p.nodes[id1] || p.nodes[id2] || p.nodes[id3] || p.nodes[id4])) {
-        targetPartName = pKey;
-        break;
-      }
+    applyEditToTab(resolved.tab.id, res.updatedText, 'add-triangle');
+    if (resolved.isActive) {
+      runValidation(res.updatedText, resolved.tab.filePath || resolved.tab.title);
     }
+  }, [symmetryEnabled, applyEditToTab, resolveTabForPartOrNode, runValidation]);
+
+  // Option 2: Add Quad visually (supports active and background open tabs)
+  const handleAddQuad = useCallback((id1, id2, id3, id4, properties = {}) => {
+    if (!id1 || !id2 || !id3 || !id4) return;
+    const resolved = resolveTabForPartOrNode({ nodeIds: [id1, id2, id3, id4] });
+    if (!resolved?.tab) return;
 
     const res = addQuadLossless(
-      curTab.content,
-      targetPartName,
+      resolved.tab.content,
+      resolved.partName,
       { id1, id2, id3, id4, properties },
       symmetryEnabled
     );
@@ -1409,9 +1615,11 @@ export function App() {
       return;
     }
 
-    applyDocumentEdit(res.updatedText, 'add-quad');
-    runValidation(res.updatedText, curTab.filePath || curTab.title);
-  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+    applyEditToTab(resolved.tab.id, res.updatedText, 'add-quad');
+    if (resolved.isActive) {
+      runValidation(res.updatedText, resolved.tab.filePath || resolved.tab.title);
+    }
+  }, [symmetryEnabled, applyEditToTab, resolveTabForPartOrNode, runValidation]);
 
   // Option 2: Subdivide Beam (Add node in between beam like Blender)
   const handleSubdivideBeam = useCallback((partNameOrOpts, id1Arg, id2Arg, splitPosArg, customNodeIdArg = null, cutsArg = 1) => {
@@ -1607,16 +1815,13 @@ export function App() {
     runValidation(res.updatedText, curTab.filePath || curTab.title);
   }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
 
-  // Option 2: Delete Selected Element (Node, Beam, Surface) with Full Bilateral Symmetry & Multi-Select Support
+  // Option 2: Delete Selected Element (Node, Beam, Surface) across any open tab with Symmetry & Multi-Select Support
   const handleDeleteSelected = useCallback((type, target) => {
     const curTab = activeTabRef.current || activeTab;
     if (!curTab) return;
     const parts = (validationResultRef.current || validationResult).parts || {};
     const partKeys = Object.keys(parts).filter(k => k !== '__meta');
-    let targetPartName = partKeys.length > 0 ? partKeys[0] : 'main';
-
-    let currentText = curTab.content;
-    let editType = 'delete-element';
+    const curActiveId = activeTabIdRef.current || activeTabId;
 
     if (type === 'node' || type === 'nodes') {
       const rawNodes = Array.isArray(target) ? target : [target];
@@ -1630,68 +1835,88 @@ export function App() {
         }
       }
 
+      const tabDeletes = new Map(); // tabId -> { tab, items: [{ nid, partName }], isActive }
       for (const nid of nodesToDelete) {
-        let pName = targetPartName;
-        for (const pKey of partKeys) {
-          if (parts[pKey]?.nodes && parts[pKey].nodes[nid]) {
-            pName = pKey;
-            break;
+        const resolved = resolveTabForPartOrNode({ nodeIds: [nid] });
+        if (!resolved?.tab) continue;
+        if (!tabDeletes.has(resolved.tab.id)) {
+          tabDeletes.set(resolved.tab.id, { tab: resolved.tab, items: [], isActive: resolved.tab.id === curActiveId });
+        }
+        tabDeletes.get(resolved.tab.id).items.push({ nid, partName: resolved.partName });
+      }
+
+      for (const entry of tabDeletes.values()) {
+        let updated = entry.tab.content;
+        for (const { nid, partName } of entry.items) {
+          const res = deleteNodeLossless(updated, partName, nid, true);
+          if (!res.error && res.updatedText) {
+            updated = res.updatedText;
           }
         }
-        const res = deleteNodeLossless(currentText, pName, nid, true);
-        if (!res.error) {
-          currentText = res.updatedText;
+        if (updated !== entry.tab.content) {
+          applyEditToTab(entry.tab.id, updated, 'delete-node');
+          if (entry.isActive) {
+            runValidation(updated, entry.tab.filePath || entry.tab.title);
+          }
         }
       }
 
       setSelectedNodeId(null);
       setMultiSelectedNodes([]);
-      editType = 'delete-node';
-    } else if (type === 'beam' && target) {
+      return;
+    }
+
+    if (type === 'beam' && target) {
       const id1 = target.id1 || (target.beam?.['id1:']) || (typeof target === 'string' ? target.split('_')[0] : null);
       const id2 = target.id2 || (target.beam?.['id2:']) || (typeof target === 'string' ? target.split('_')[1] : null);
-      if (id1 && id2) {
-        let pName = targetPartName;
-        for (const pKey of partKeys) {
-          if (parts[pKey]?.beams) {
-            const hasBeam = Object.keys(parts[pKey].beams).some(k => {
-              const b = parts[pKey].beams[k];
-              return (b['id1:'] === id1 && b['id2:'] === id2) || (b['id1:'] === id2 && b['id2:'] === id1);
-            });
-            if (hasBeam) {
-              pName = pKey;
-              break;
-            }
-          }
-        }
+      if (!id1 || !id2) return;
 
-        const res = deleteBeamLossless(currentText, pName, id1, id2);
-        if (!res.error) {
-          currentText = res.updatedText;
-        }
+      const resolved = resolveTabForPartOrNode({
+        partName: target.partName,
+        tabTitle: target.tabTitle,
+        nodeIds: [id1, id2]
+      });
+      if (!resolved?.tab) return;
 
-        if (symmetryEnabled) {
-          const sym1 = getSymmetricNodeId(id1);
-          const sym2 = getSymmetricNodeId(id2);
-          if (sym1 && sym2 && (sym1 !== id1 || sym2 !== id2)) {
-            const resSym = deleteBeamLossless(currentText, pName, sym1, sym2);
-            if (!resSym.error) {
-              currentText = resSym.updatedText;
-            }
-          }
-        }
+      let currentText = resolved.tab.content;
+      const pName = resolved.partName;
+      const res = deleteBeamLossless(currentText, pName, id1, id2);
+      if (!res.error && res.updatedText) currentText = res.updatedText;
 
-        setSelectedBeamInfo(null);
-        editType = 'delete-beam';
+      if (symmetryEnabled) {
+        const sym1 = getSymmetricNodeId(id1);
+        const sym2 = getSymmetricNodeId(id2);
+        if (sym1 && sym2 && (sym1 !== id1 || sym2 !== id2)) {
+          const resSym = deleteBeamLossless(currentText, pName, sym1, sym2);
+          if (!resSym.error && resSym.updatedText) currentText = resSym.updatedText;
+        }
       }
-    } else if ((type === 'surface' || type === 'triangle' || type === 'quad') && target) {
+
+      setSelectedBeamInfo(null);
+      if (currentText !== resolved.tab.content) {
+        applyEditToTab(resolved.tab.id, currentText, 'delete-beam');
+        if (resolved.isActive) {
+          runValidation(currentText, resolved.tab.filePath || resolved.tab.title);
+        }
+      }
+      return;
+    }
+
+    if ((type === 'surface' || type === 'triangle' || type === 'quad') && target) {
       const surfaceType = target.type || (target.nodes?.length === 4 ? 'quad' : 'triangle');
       const nodes = target.nodes || [target.id1, target.id2, target.id3, target.id4].filter(Boolean);
-      const pName = target.partName || targetPartName;
+      const resolved = resolveTabForPartOrNode({
+        partName: target.partName,
+        nodeIds: nodes
+      });
+      if (!resolved?.tab) return;
+
+      let currentText = resolved.tab.content;
+      const pName = resolved.partName;
 
       if (surfaceType === 'quad' && nodes.length === 4) {
         const res = deleteQuadLossless(currentText, pName, nodes[0], nodes[1], nodes[2], nodes[3]);
-        if (!res.error) currentText = res.updatedText;
+        if (!res.error && res.updatedText) currentText = res.updatedText;
 
         if (symmetryEnabled) {
           const sym1 = getSymmetricNodeId(nodes[0]);
@@ -1700,12 +1925,12 @@ export function App() {
           const sym4 = getSymmetricNodeId(nodes[3]);
           if (sym1 && sym2 && sym3 && sym4) {
             const resSym = deleteQuadLossless(currentText, pName, sym1, sym4, sym3, sym2);
-            if (!resSym.error) currentText = resSym.updatedText;
+            if (!resSym.error && resSym.updatedText) currentText = resSym.updatedText;
           }
         }
       } else if (nodes.length >= 3) {
         const res = deleteTriangleLossless(currentText, pName, nodes[0], nodes[1], nodes[2]);
-        if (!res.error) currentText = res.updatedText;
+        if (!res.error && res.updatedText) currentText = res.updatedText;
 
         if (symmetryEnabled) {
           const sym1 = getSymmetricNodeId(nodes[0]);
@@ -1713,20 +1938,20 @@ export function App() {
           const sym3 = getSymmetricNodeId(nodes[2]);
           if (sym1 && sym2 && sym3) {
             const resSym = deleteTriangleLossless(currentText, pName, sym1, sym3, sym2);
-            if (!resSym.error) currentText = resSym.updatedText;
+            if (!resSym.error && resSym.updatedText) currentText = resSym.updatedText;
           }
         }
       }
 
       setSelectedSurfaceInfo(null);
-      editType = 'delete-surface';
+      if (currentText !== resolved.tab.content) {
+        applyEditToTab(resolved.tab.id, currentText, 'delete-surface');
+        if (resolved.isActive) {
+          runValidation(currentText, resolved.tab.filePath || resolved.tab.title);
+        }
+      }
     }
-
-    if (currentText !== curTab.content) {
-      applyDocumentEdit(currentText, editType);
-      runValidation(currentText, curTab.filePath || curTab.title);
-    }
-  }, [activeTab, validationResult, symmetryEnabled, applyDocumentEdit, runValidation]);
+  }, [activeTab, activeTabId, validationResult, symmetryEnabled, applyEditToTab, resolveTabForPartOrNode, runValidation]);
 
   // Option 2 & 3: Cascading Node Renaming across all tables
   const handleRenameNode = useCallback((partName, oldNodeId, newNodeId, options = {}) => {
@@ -1819,6 +2044,9 @@ export function App() {
     if (nodeId) {
       setSelectedBeamInfo(null);
       setSelectedSurfaceInfo(null);
+      setSelectedWheelInfo(null);
+      setSelectedTorsionBarInfo(null);
+      setSelectedSlideNodeInfo(null);
       setLiveCoords(null);
       setRightTab('inspector');
       setRightSidebarOpen(true);
@@ -1890,6 +2118,9 @@ export function App() {
       setSelectedNodeId(null);
       setMultiSelectedNodes([]);
       setSelectedSurfaceInfo(null);
+      setSelectedWheelInfo(null);
+      setSelectedTorsionBarInfo(null);
+      setSelectedSlideNodeInfo(null);
       setSelectedBeamInfo({
         partName: partName || Object.keys(valResult?.parts || {})[0] || 'main',
         beamKey: beamKey || `${beam?.['id1:']}_${beam?.['id2:']}`,
@@ -1916,6 +2147,9 @@ export function App() {
       setSelectedNodeId(null);
       setMultiSelectedNodes([]);
       setSelectedBeamInfo(null);
+      setSelectedWheelInfo(null);
+      setSelectedTorsionBarInfo(null);
+      setSelectedSlideNodeInfo(null);
       setSelectedSurfaceInfo(surfaceInfo);
       setRightTab('inspector');
       setRightSidebarOpen(true);
@@ -1966,6 +2200,82 @@ export function App() {
     }
     setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
   };
+
+  // Select PressureWheel (from 3D Viewport)
+  const handleSelectWheel = useCallback((wheelInfo) => {
+    isSelectingFromViewportRef.current = true;
+    if (wheelInfo) {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(null);
+      setSelectedTorsionBarInfo(null);
+      setSelectedSlideNodeInfo(null);
+      setSelectedWheelInfo(wheelInfo);
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+
+      const targetLine = wheelInfo.range ? wheelInfo.range[0] + 1 : null;
+      if (targetLine && editorRef.current) {
+        editorRef.current.revealLineInCenter(targetLine);
+        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+      }
+    } else {
+      setSelectedWheelInfo(null);
+    }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
+  }, []);
+
+  // Select TorsionBar / Swaybar (from 3D Viewport)
+  const handleSelectTorsionBar = useCallback((tbInfo) => {
+    isSelectingFromViewportRef.current = true;
+    if (tbInfo) {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(null);
+      setSelectedWheelInfo(null);
+      setSelectedSlideNodeInfo(null);
+      setSelectedTorsionBarInfo(tbInfo);
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+
+      const targetLine = tbInfo.lineRange ? tbInfo.lineRange[0] + 1 : null;
+      if (targetLine && editorRef.current) {
+        editorRef.current.revealLineInCenter(targetLine);
+        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+      }
+    } else {
+      setSelectedTorsionBarInfo(null);
+    }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
+  }, []);
+
+  // Select SlideNode or Rail (from 3D Viewport)
+  const handleSelectSlideNode = useCallback((snInfo) => {
+    isSelectingFromViewportRef.current = true;
+    if (snInfo) {
+      setSelectedNodeId(null);
+      setMultiSelectedNodes([]);
+      setSelectedBeamInfo(null);
+      setSelectedSurfaceInfo(null);
+      setSelectedWheelInfo(null);
+      setSelectedTorsionBarInfo(null);
+      setSelectedSlideNodeInfo(snInfo);
+      setRightTab('inspector');
+      setRightSidebarOpen(true);
+
+      const sn = snInfo.slideNode || snInfo;
+      const targetLine = sn.lineRange ? sn.lineRange[0] + 1 : null;
+      if (targetLine && editorRef.current) {
+        editorRef.current.revealLineInCenter(targetLine);
+        editorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
+      }
+    } else {
+      setSelectedSlideNodeInfo(null);
+    }
+    setTimeout(() => { isSelectingFromViewportRef.current = false; }, 200);
+  }, []);
 
   // Change Beam Physics Type Losslessly (Normal, Support, Hydro, Bounded, Anisotropic, Pressured, LBeam)
   const handleChangeBeamType = useCallback((partName, id1, id2, newBeamType) => {
@@ -2231,7 +2541,8 @@ export function App() {
   };
 
   // Helper to open content in a tab
-  const openContentAsTab = useCallback((title, filePath, content) => {
+  const openContentAsTab = useCallback((title, filePath, content, options = {}) => {
+    const { stayInFiles = false } = options;
     setTabs(prev => {
       // Remove unmodified untitled tab placeholder if opening a real file
       const filtered = prev.filter(t => !(t.id === 'tab-untitled' && !t.isDirty && !t.filePath));
@@ -2250,7 +2561,9 @@ export function App() {
       setActiveTabId(newTab.id);
       return [...filtered, newTab];
     });
-    setLeftTab('code');
+    if (!stayInFiles) {
+      setLeftTab('code');
+    }
     setLeftSidebarOpen(true);
   }, []);
 
@@ -2310,21 +2623,23 @@ export function App() {
   };
 
   // File Operations (Works in Electron and Browser)
-  const handleOpenFile = async (filePath) => {
+  const handleOpenFile = async (filePath, options = {}) => {
     try {
       const fileName = filePath.split(/[\\/]/).pop();
 
-      // Intercept .dae files -> load directly as 3D Visual Mesh Overlay and switch to Meshes tab
+      // Intercept .dae files -> load directly as 3D Visual Mesh Overlay and switch to Meshes tab (unless stayInFiles)
       if (fileName && fileName.toLowerCase().endsWith('.dae')) {
         await handleSelectDiscoveredDae(filePath);
-        setLeftTab('meshes');
+        if (!options.stayInFiles) {
+          setLeftTab('meshes');
+        }
         return;
       }
 
       if (window.jbeamAPI?.readFile) {
         const res = await window.jbeamAPI.readFile(filePath);
         if (res.success) {
-          openContentAsTab(fileName, res.filePath || filePath, res.content);
+          openContentAsTab(fileName, res.filePath || filePath, res.content, options);
         }
       } else {
         // Browser fallback: lookup file in workspaceFiles
@@ -2335,10 +2650,10 @@ export function App() {
             handleLoadDaeContent(text, node.name);
           } else {
             const text = await node.browserFile.text();
-            openContentAsTab(node.name, node.path, text);
+            openContentAsTab(node.name, node.path, text, options);
           }
         } else if (node && node.virtualContent !== undefined) {
-          openContentAsTab(node.name, node.path, node.virtualContent);
+          openContentAsTab(node.name, node.path, node.virtualContent, options);
         }
       }
     } catch (err) {
@@ -3345,37 +3660,61 @@ export function App() {
     }
   }
 
-  const { nodeCollisionCount, suggestedPrefix } = useMemo(() => {
-    if (!tabs || tabs.length < 2) return { nodeCollisionCount: 0, suggestedPrefix: '' };
-    const curParts = validationResult.parts || {};
-    const curPart = Object.values(curParts)[0];
-    if (!curPart?.nodes) return { nodeCollisionCount: 0, suggestedPrefix: '' };
+  const { nodeCollisionCount, collidingNodes, suggestedPrefix, openTabsBackgroundParts } = useMemo(() => {
+    const bgParts = {};
+    const bgDeclaredNodes = new Map(); // nid -> [{ tabTitle, partName }]
 
-    const activeNodeIds = new Set();
-    const rows = Array.isArray(curPart.nodes) ? curPart.nodes : Object.values(curPart.nodes);
-    for (const r of rows) {
-      if (!r || typeof r !== 'object') continue;
-      const nid = r.id || r['0'] || (Array.isArray(r) ? r[0] : null);
-      if (nid && typeof nid === 'string' && nid.toLowerCase() !== 'id') {
-        activeNodeIds.add(nid);
+    if (tabs && tabs.length > 1) {
+      const curId = activeTab?.id;
+      for (const t of tabs) {
+        if (t.id === curId || !t.content || typeof t.content !== 'string') continue;
+        try {
+          const val = validateJBeamDocument(t.content, t.filePath || t.title);
+          if (val && val.parts) {
+            for (const pKey of Object.keys(val.parts).filter(k => k !== '__meta')) {
+              const p = val.parts[pKey];
+              if (!p || typeof p !== 'object') continue;
+              const scopedPartKey = bgParts[pKey] ? `${pKey}__tab_${t.id || t.title}` : pKey;
+              bgParts[scopedPartKey] = p;
+              if (p.nodes) {
+                for (const nid of Object.keys(p.nodes).filter(k => k !== '__meta')) {
+                  if (!bgDeclaredNodes.has(nid)) bgDeclaredNodes.set(nid, []);
+                  bgDeclaredNodes.get(nid).push({ tabTitle: t.title, partName: pKey });
+                }
+              }
+            }
+          }
+        } catch (_) {}
       }
     }
 
-    let collisionCount = 0;
-    const curId = activeTab?.id;
-    for (const t of tabs) {
-      if (t.id === curId || !t.content) continue;
-      for (const nid of activeNodeIds) {
-        if (t.content.includes(`"${nid}"`)) {
-          collisionCount++;
+    const curParts = validationResult.parts || {};
+    const curPartKeys = Object.keys(curParts).filter(k => k !== '__meta');
+    const clashes = [];
+    for (const pKey of curPartKeys) {
+      const curPart = curParts[pKey];
+      if (!curPart?.nodes) continue;
+      for (const nid of Object.keys(curPart.nodes).filter(k => k !== '__meta')) {
+        if (bgDeclaredNodes.has(nid)) {
+          const matches = bgDeclaredNodes.get(nid);
+          clashes.push({
+            id: nid,
+            activePart: pKey,
+            counterparts: matches
+          });
         }
       }
     }
 
-    const curPartKey = Object.keys(curParts).filter(k => k !== '__meta')[0] || 'part';
+    const curPartKey = curPartKeys[0] || 'part';
     const prefix = getPartPrefix(curPartKey, activeTab?.title);
 
-    return { nodeCollisionCount: collisionCount, suggestedPrefix: prefix };
+    return {
+      nodeCollisionCount: clashes.length,
+      collidingNodes: clashes,
+      suggestedPrefix: prefix,
+      openTabsBackgroundParts: bgParts
+    };
   }, [tabs, activeTab, validationResult]);
 
   // Saves generated modular files to disk and opens them in the workspace
@@ -3516,9 +3855,15 @@ export function App() {
         selectedBeamKey={selectedBeamInfo?.beamKey}
         selectedBeamInfo={selectedBeamInfo}
         selectedSurfaceInfo={selectedSurfaceInfo}
+        selectedWheelInfo={selectedWheelInfo}
+        selectedTorsionBarInfo={selectedTorsionBarInfo}
+        selectedSlideNodeInfo={selectedSlideNodeInfo}
         onSelectNode={handleSelectNode}
         onSelectBeam={handleSelectBeam}
         onSelectSurface={handleSelectSurface}
+        onSelectWheel={handleSelectWheel}
+        onSelectTorsionBar={handleSelectTorsionBar}
+        onSelectSlideNode={handleSelectSlideNode}
         onNodeMoved={handleCommitNodeMove}
         onLiveNodeMove={handleLiveNodeMove}
         symmetryEnabled={symmetryEnabled}
@@ -3537,6 +3882,8 @@ export function App() {
         onDeleteSelected={handleDeleteSelected}
         codeHoveredElement={codeHoveredElement}
         codeSelectedElements={codeSelectedElements}
+        hoverFocusDimming={hoverFocusDimming}
+        mechanicalKinematicsPreview={mechanicalKinematicsPreview}
         nonActiveViewType={nonActiveViewType}
         onChangeNonActiveViewType={setNonActiveViewType}
         multiSelectedNodes={multiSelectedNodes}
@@ -3589,8 +3936,12 @@ export function App() {
         onRedo={handleRedo}
         onAutoLinkMounts={handleAutoLinkClosestMounts}
         nodeCollisionCount={nodeCollisionCount}
+        collidingNodes={collidingNodes}
         suggestedPrefix={suggestedPrefix}
         onPrefixActiveNodes={handlePrefixAllActiveNodes}
+        openTabsBackgroundParts={openTabsBackgroundParts}
+        multiPartFeedback={multiPartFeedback}
+        onDismissMultiPartFeedback={() => setMultiPartFeedback(null)}
       />
     );
   };
@@ -3634,6 +3985,9 @@ export function App() {
     handleSelectNode,
     handleSelectBeam,
     handleSelectSurface,
+    handleSelectWheel,
+    handleSelectTorsionBar,
+    handleSelectSlideNode,
     handleCommitNodeMove,
     handleLiveNodeMove,
     handleTogglePartVisibility,
@@ -3777,6 +4131,15 @@ export function App() {
           break;
         case 'SELECT_SURFACE':
           h.handleSelectSurface?.(data.surfaceInfo);
+          break;
+        case 'SELECT_WHEEL':
+          h.handleSelectWheel?.(data.wheelInfo);
+          break;
+        case 'SELECT_TORSION_BAR':
+          h.handleSelectTorsionBar?.(data.tbInfo);
+          break;
+        case 'SELECT_SLIDENODE':
+          h.handleSelectSlideNode?.(data.snInfo);
           break;
         case 'COMMIT_NODE_MOVE':
           h.handleCommitNodeMove?.(data.nodeId, data.newPosition, data.symmetry);
@@ -3928,10 +4291,13 @@ export function App() {
         type: 'SYNC_SELECTION',
         selectedNodeId,
         selectedBeamInfo,
-        selectedSurfaceInfo
+        selectedSurfaceInfo,
+        selectedWheelInfo,
+        selectedTorsionBarInfo,
+        selectedSlideNodeInfo
       });
     } catch (e) {}
-  }, [isViewportDetached, selectedNodeId, selectedBeamInfo, selectedSurfaceInfo]);
+  }, [isViewportDetached, selectedNodeId, selectedBeamInfo, selectedSurfaceInfo, selectedWheelInfo, selectedTorsionBarInfo, selectedSlideNodeInfo]);
 
   // Viewport Detach / Reattach Handlers
   const handleReattachViewport = useCallback(() => {
@@ -4091,6 +4457,7 @@ export function App() {
       workspacePath={workspacePath}
       files={workspaceFiles}
       activeFilePath={activeTab?.filePath}
+      openFilePaths={tabs.map(t => t.filePath).filter(Boolean)}
       onOpenFile={handleOpenFile}
       onOpenFolderDialog={handleOpenFolderDialog}
       onOpenFileDialog={handleOpenFileDialog}
@@ -4160,16 +4527,41 @@ export function App() {
 
   const renderMechanicalWorkspace = () => {
     const activePartKey = Object.keys(activeViewportParts || {}).filter(k => k !== '__meta')[0] || 'main';
+    const openTabsMerged = { ...(openTabsBackgroundParts || {}), ...(activeViewportParts || {}) };
     return (
       <MechanicalWorkspace
         jbeamParts={activeViewportParts}
         compositeVehicleParts={compositeVehicleParts}
+        openTabsParts={Object.keys(openTabsMerged).filter(k => k !== '__meta').length > 0 ? openTabsMerged : null}
         workspaceIndex={workspaceIndex}
         activeDocumentText={activeTab?.content || ''}
         activePartName={activePartKey}
         workspacePath={workspacePath}
         onNavigateToElement={handleJumpToMechanicalElement}
         onFocusNodeIn3D={handleFocusMechanicalIn3D}
+        onHoverElement={setCodeHoveredElement}
+        onUpdateBeamProperties={(item, updates) => {
+          if (!item?.id1 || !item?.id2) return false;
+          const normPath = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+          const targetPart = item.partName || activePartKey;
+          const targetPath = item.filePath ||
+            workspaceIndex?.partsMap?.[targetPart]?.filePath ||
+            compositeVehicleParts?.[targetPart]?.__filePath;
+
+          // Find matching open tab by exact filePath, or fall back to activeTab if part exists there
+          const matchingTab = targetPath
+            ? tabs.find(t => normPath(t.filePath) === normPath(targetPath))
+            : activeTab;
+
+          if (matchingTab) {
+            const res = updateBeamPropertiesLossless(matchingTab.content, targetPart, item.id1, item.id2, updates, symmetryEnabled);
+            if (!res.error && res.updatedText !== matchingTab.content) {
+              setTabs(prev => prev.map(t => t.id === matchingTab.id ? { ...t, content: res.updatedText, isDirty: true } : t));
+              return true;
+            }
+          }
+          return false;
+        }}
         onSelectSubmesh={(meshName) => {
           setHighlightedSubmesh(meshName);
         }}
@@ -4186,6 +4578,9 @@ export function App() {
       selectedNodeId={selectedNodeId}
       selectedBeamInfo={selectedBeamInfo}
       selectedSurfaceInfo={selectedSurfaceInfo}
+      selectedWheelInfo={selectedWheelInfo}
+      selectedTorsionBarInfo={selectedTorsionBarInfo}
+      selectedSlideNodeInfo={selectedSlideNodeInfo}
       multiSelectedNodes={multiSelectedNodes}
       onMultiSelectChange={setMultiSelectedNodes}
       jbeamParts={activeViewportParts}
@@ -4228,8 +4623,14 @@ export function App() {
       jbeamParts={activeViewportParts}
       selectedNodeId={selectedNodeId}
       selectedBeamKey={selectedBeamInfo?.beamKey}
+      selectedSurfaceInfo={selectedSurfaceInfo}
       onSelectNode={handleSelectNode}
       onSelectBeam={handleSelectBeam}
+      onSelectSurface={handleSelectSurface}
+      onHoverElement={setCodeHoveredElement}
+      onSelectCodeElements={setCodeSelectedElements}
+      hoverFocusDimming={hoverFocusDimming}
+      onToggleHoverFocusDimming={() => setHoverFocusDimming(prev => !prev)}
     />
   );
 
@@ -4363,17 +4764,6 @@ export function App() {
                     </button>
                   </>
                 )}
-                <button
-                  onClick={() => {
-                    handleSwitchLeftTab('mechanical');
-                    setBottomPanelTab('mechanical');
-                  }}
-                  className={`sidebar-tab-btn ${leftTab === 'mechanical' ? 'active' : ''}`}
-                  title="Mechanical Workspace (Powertrain, Drivetrain & Hydros)"
-                >
-                  <MechanicalIcon size={17} />
-                  <span>Mechanical</span>
-                </button>
               </div>
               <button
                 onClick={() => setLeftSidebarOpen(false)}
@@ -4459,18 +4849,6 @@ export function App() {
                   </button>
                 </>
               )}
-              <button
-                className={`collapsed-tab-btn ${leftTab === 'mechanical' ? 'active' : ''}`}
-                onClick={() => {
-                  handleSwitchLeftTab('mechanical');
-                  setBottomPanelTab('mechanical');
-                  setLeftSidebarOpen(true);
-                }}
-                title="Mechanical Workspace (Powertrain, Drivetrain & Hydros)"
-                aria-label="Mechanical Workspace"
-              >
-                <MechanicalIcon size={18} />
-              </button>
             </div>
 
             <button
@@ -4520,19 +4898,11 @@ export function App() {
                 <div className="bottom-panel-tabs">
                   <button
                     type="button"
-                    className={`panel-tab ${bottomPanelTab === 'problems' ? 'active' : ''}`}
+                    className="panel-tab active"
                     onClick={() => setBottomPanelTab('problems')}
                   >
                     <span>Problems</span>
                     <span className="panel-tab-badge">{validationResult.problems.length}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`panel-tab ${bottomPanelTab === 'mechanical' ? 'active' : ''}`}
-                    onClick={() => setBottomPanelTab('mechanical')}
-                  >
-                    <MechanicalIcon size={13} />
-                    <span>Mechanical Instruments</span>
                   </button>
                 </div>
                 <button
@@ -4544,18 +4914,12 @@ export function App() {
                 </button>
               </div>
               <div className="bottom-panel-body">
-                {bottomPanelTab === 'mechanical' ? (
-                  <MechanicalBottomDock
-                    overview={extractMechanicalOverview(activeViewportParts)}
-                  />
-                ) : (
-                  <ProblemsPanel
-                    problems={validationResult.problems}
-                    onNavigateToProblem={handleNavigateToProblem}
-                    logEntries={gameLogEntries}
-                    onLoadLogContent={setGameLogEntries}
-                  />
-                )}
+                <ProblemsPanel
+                  problems={validationResult.problems}
+                  onNavigateToProblem={handleNavigateToProblem}
+                  logEntries={gameLogEntries}
+                  onLoadLogContent={setGameLogEntries}
+                />
               </div>
             </div>
           )}
@@ -4759,6 +5123,7 @@ export function App() {
         </div>
       )}
 
+      <GlobalTooltip />
     </div>
   );
 }

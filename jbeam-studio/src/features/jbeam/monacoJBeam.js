@@ -153,13 +153,13 @@ export function registerJBeamLanguage(monaco) {
       'editor.background': '#1A1A1A',
       'editor.foreground': '#FFFFFF',
       'editorLineNumber.foreground': '#737373',
-      'editorLineNumber.activeForeground': '#FF6600',
-      'editorCursor.foreground': '#FF6600',
+      'editorLineNumber.activeForeground': '#0099FF',
+      'editorCursor.foreground': '#0099FF',
       'editor.lineHighlightBackground': '#262626',
-      'editor.selectionBackground': '#FF660040',
-      'editor.selectionHighlightBackground': '#FF853326',
-      'editorBracketMatch.background': '#FF660022',
-      'editorBracketMatch.border': '#FF6600'
+      'editor.selectionBackground': '#0099FF40',
+      'editor.selectionHighlightBackground': '#33ADFF26',
+      'editorBracketMatch.background': '#0099FF22',
+      'editorBracketMatch.border': '#0099FF'
     }
   });
 

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3Beta] - 2026-11-25
+
+### 🌟 New Features & Major Additions
+- **Reconstructed Ghost Wheels & Multi-Axle Truck PressureWheels**:
+  - Redesigned `buildParametricWheelMesh` with a smooth `LatheGeometry` tire carcass, sidewall bulge, circumferential tread guide rings, and stepped rim barrel (`depthWrite: false` so the inner physics skeleton remains crisp).
+  - Auto-adapting wheel face: renders a **deep-dish 10-lug hub & planetary dome** for heavy-duty truck wheels and a **6-spoke face + inner brake rotor** for passenger/sport cars.
+  - Nested **Ghost Wheels & Tires** under **PressureWheels Skeleton** in the `Physics` dropdown so ghost wheels only spawn when `PressureWheels Skeleton` is active.
+  - Added full sequential `rowState`, `disable` condition evaluation, `$variables`/`$components` Lua expression resolution (`simplifiedDuallies`, `$tirepressure_*`, `$trackoffset_*`), group-scoped option inheritance, and `slots`/`slots2` `nodeOffset` alignment for external `common/wheels` packages.
+- **Multi-Part View Mode Enhancements**:
+  - Added `CAD Wire | Joints | Cross` background tab styles, `Auto-Mount` virtual cross-part beams, and **Clash Inspector** for overlapping nodes across open tabs.
+  - Grouped `Parts & Flexbodies` by file name in Multi-Part mode for faster navigation across open `.jbeam` files.
+- **File Explorer & App-Wide Custom Tooltips**:
+  - Rebuilt `ProjectExplorer` with vertical tree indent guides, folder item counts, single-click folder expand/collapse, quick filter bar, Expand/Collapse All, `Pin` stay-in-files mode, `+` background tab open, and distinct extension icons/badges (`.jbeam`, `.dae`, `.pc`, `.json`, `.html`, `.css`, `.js`/`.ts`/`.lua`, textures).
+  - Added `GlobalTooltip` portal component at app root so all `title` and `data-tooltip` elements render with a single sleek dark tooltip (`z-index: 99999`, viewport-clamped) with zero duplicate OS popups.
+- **Structure Tree Hover Isolation & Problems Severity Filters**:
+  - Fixed single-click collapse on Structure Tree section headers and added 3D hover focus/dimming when hovering nodes, beams, triangles, or quads in the Structure Tree.
+  - Added clickable **Errors / Warnings / Notices** severity filter toggles in the `Problems` panel.
+- **Documentation & GitHub Wiki**:
+  - Updated `README.md` and created a multi-page GitHub Wiki under `wiki/` covering every active feature, tool, physics overlay, and keyboard shortcut.
+
+### 🛠️ Improvements & Fixes
+- Fixed `TypeError: Converting circular structure to JSON` in `findSuspensionHubAnchor` caused by `JSON.stringify` on SJSON AST `group` arrays containing `__meta.parent` circular references.
+- Fixed `absorbSlotOffsets` to read processed `tableSchema` dictionary-format `slots`/`slots2` tables as well as raw arrays.
+- Set **Frame Triad (`refNodes`)** and **Cockpit Cameras (`camerasInternal`)** off by default in the `Physics` dropdown.
+- Hid the experimental Mechanical tab and Mechanical Instruments entry points from the active UI for a cleaner workspace while under redesign.
+
+---
+
 ## [v0.2Beta] - 2026-11-19
 
 ### ⚠️ Early Beta Safety Notice

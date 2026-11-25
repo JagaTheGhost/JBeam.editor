@@ -153,5 +153,59 @@ export async function runMechanicalWorkspaceTests() {
   assert.ok(wheelaxle.boundNodes.includes('rw1r'), 'wheelaxleRR should inherit bound nodes from defining part beams');
   console.log('✓ Test 7: Fallback bound nodes resolution for shafts/wheelaxles verified.');
 
+  // Test 8: Parsed tableSchema objects (id1:/id2:), array breakGroups, suspension beams, brakes, gearbox/diff & $vars
+  const parsedSchemaParts = {
+    bastion_steering: {
+      hydros: {
+        0: { 'id1:': 'fx5r', 'id2:': 'fh6r', factor: -0.25, inRate: 1.5, outRate: 1.5, beamName: 'steering_rack_R' },
+        1: { 'id1:': 'fx5l', 'id2:': 'fh6l', factor: 0.25, inRate: 1.5, outRate: 1.5, beamName: 'steering_rack_L' }
+      }
+    },
+    bastion_engine_mounts: {
+      beams: {
+        0: { 'id1:': 'e1r', 'id2:': 'f1r', breakGroup: { 0: 'enginemount_a', 1: 'enginemount_b', __meta: {} }, beamSpring: 1800000, beamStrength: 35000 },
+        1: { 'id1:': 'fh1r', 'id2:': 'fs1r', beamType: '|BOUNDED', beamSpring: 45000, beamDamp: 3200 },
+        2: { 'id1:': 'fh1r', 'id2:': 'f2r', beamType: '|SUPPORT', beamSpring: 95000 }
+      },
+      variables: {
+        0: { name: '$spring_F', category: 'Suspension', unit: 'N/m', default: 45000, min: 20000, max: 90000 }
+      }
+    },
+    bastion_drivetrain: {
+      powertrain: [
+        ['type', 'name', 'inputName', 'inputIndex'],
+        ['automaticGearbox', 'gearbox', 'mainEngine', 1],
+        ['differential', 'differential_R', 'gearbox', 1]
+      ],
+      gearbox: { gears: [-3.1, 0, 4.71, 3.14, 2.11, 1.67, 1.28, 1.00] },
+      differential_R: { diffType: 'lsd', gearRatio: 3.09 },
+      nodes: {
+        fw1rr: { posX: -0.78, posY: -1.4, posZ: 0.33 },
+        fw1r: { posX: -1.05, posY: -1.4, posZ: 0.33 }
+      },
+      pressureWheels: [
+        ['name', 'hubGroup', 'group', 'node1:', 'node2:', 'nodeS', 'nodeArm:', 'wheelDir'],
+        { brakeTorque: 3200, brakeDiameter: 0.38, radius: 0.35, pressurePSI: 34 },
+        ['FR', 'wheel_FR', 'tire_FR', 'fw1rr', 'fw1r', 9999, 'fh5r', 1]
+      ]
+    }
+  };
+
+  const schemaOverview = extractMechanicalOverview(parsedSchemaParts);
+  assert.strictEqual(schemaOverview.hydrosList.length, 2, 'Parsed tableSchema hydros (id1:/id2:) must be extracted');
+  assert.strictEqual(schemaOverview.mountsList.length, 1, 'Parsed mount beams with SJSON array breakGroup must be extracted');
+  assert.ok(schemaOverview.mountsList[0].breakGroup.includes('enginemount_a'));
+  assert.strictEqual(schemaOverview.suspensionList.filter(s => s.kind === 'bounded' || s.kind === 'support').length, 2, 'Bounded & Support suspension beams must be extracted');
+  assert.strictEqual(schemaOverview.variablesList.length, 1, 'Mechanical $variables must be extracted');
+  assert.strictEqual(schemaOverview.variablesList[0].name, '$spring_F');
+  assert.ok(schemaOverview.gearboxSpecs && schemaOverview.gearboxSpecs.ratios.length === 6, 'Real forward gear ratios must be extracted');
+  assert.strictEqual(schemaOverview.diffSpecs[0].gearRatio, 3.09, 'Real differential gearRatio must be extracted');
+  assert.strictEqual(schemaOverview.brakesList.length, 1, 'Brakes/wheels must be extracted');
+  assert.strictEqual(schemaOverview.brakesList[0].brakeTorque, 3200);
+  assert.strictEqual(schemaOverview.suspensionList[0].axle, 'front', 'Front suspension item must be tagged front axle');
+  assert.strictEqual(schemaOverview.vehicleBalance.frontBrakePct, 100, 'Brake bias with front-only brakes must be 100% F');
+  assert.ok(schemaOverview.powertrainIssues.some(i => i.severity === 'error' && i.device === 'gearbox'), 'Broken inputName link must be flagged in powertrainIssues');
+  console.log('✓ Test 8: Parsed tableSchema hydros, array breakGroups, suspension beams, brakes, gearbox/diff, balance & issues verified.');
+
   console.log('All Mechanical Workspace & System Extractor tests passed successfully!\n');
 }
